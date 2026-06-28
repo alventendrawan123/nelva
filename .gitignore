@@ -1,0 +1,28 @@
+# ── Daml / DPM build artifacts ───────────────────────────
+.daml/
+*.dar
+.dpm/
+
+# ── Node (BE / FE) ───────────────────────────────────────
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+
+# ── Secrets / env ────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# ── OS / editor ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+
+# ── Archives / temp / logs ───────────────────────────────
+*.zip
+*.log
+*.tmp

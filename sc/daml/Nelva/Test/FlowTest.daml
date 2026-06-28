@@ -1,0 +1,60 @@
+-- | Flow tests for the asset + bid layer: proves the LOCK-as-preauthorization
+-- mechanism — the operator draws a lender's locked funds to the borrower on
+-- match, with NO operator custody, all from the lender's prior consent.
+--
+-- Run: dpm test --files daml/Nelva/Test/FlowTest.daml
+module Nelva.Test.FlowTest where
+
+import Daml.Script
+import DA.Assert ((===))
+import DA.Time (addRelTime, days)
+import Nelva.Asset
+import Nelva.Lending
+
+-- mint -> lock -> bid -> operator draws to borrower (rate within cap).
+testLockBidDraw : Script ()
+testLockBidDraw = do
+  custodian <- allocateParty "Custodian"
+  lender <- allocateParty "Lender"
+  operator <- allocateParty "Operator"
+  borrower <- allocateParty "Borrower"
+  auditor <- allocateParty "Auditor"
+  now <- getTime
+
+  cash <- submit custodian do
+    createCmd Holding with custodian, owner = lender, amount = 100.0, instrument = "USD", locker = None
+  lockedCash <- submit lender do exerciseCmd cash Lock with newLocker = operator
+  bid <- submit lender do
+    createCmd SealedBid with
+      lender, matchingOperator = operator, auditor, bidId = "bidA", holdingCid = lockedCash
+      amount = 100.0, bidRate = 0.05, instrument = "USD", deadline = addRelTime now (days 1)
+
+  -- operator matches at 0.04 (<= 0.05), full amount, and moves the funds to the borrower
+  drawn <- submit operator do
+    exerciseCmd bid DrawForMatch with matchedRate = 0.04, matchedAmount = 100.0, recipient = borrower
+
+  Some bh <- queryContractId borrower drawn
+  bh.owner === borrower
+  bh.amount === 100.0
+  bh.locker === None
+
+-- a matched rate ABOVE the lender's cap must be rejected.
+testDrawAboveCapFails : Script ()
+testDrawAboveCapFails = do
+  custodian <- allocateParty "Custodian2"
+  lender <- allocateParty "Lender2"
+  operator <- allocateParty "Operator2"
+  borrower <- allocateParty "Borrower2"
+  auditor <- allocateParty "Auditor2"
+  now <- getTime
+
+  cash <- submit custodian do
+    createCmd Holding with custodian, owner = lender, amount = 50.0, instrument = "USD", locker = None
+  lockedCash <- submit lender do exerciseCmd cash Lock with newLocker = operator
+  bid <- submit lender do
+    createCmd SealedBid with
+      lender, matchingOperator = operator, auditor, bidId = "bidX", holdingCid = lockedCash
+      amount = 50.0, bidRate = 0.03, instrument = "USD", deadline = addRelTime now (days 1)
+
+  submitMustFail operator do
+    exerciseCmd bid DrawForMatch with matchedRate = 0.05, matchedAmount = 50.0, recipient = borrower

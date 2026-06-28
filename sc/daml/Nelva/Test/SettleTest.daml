@@ -1,0 +1,167 @@
+-- | End-to-end settlement + lifecycle + audit tests.
+--   testMatchAcceptVerifyGreen : honest match -> Verify GREEN -> Accept -> Repay (tier up)
+--   testCorruptMatchVerifyRed  : operator publishes a dishonest match -> Verify RED
+--   testLiquidate              : unhealthy loan -> pro-rata seizure -> tier down
+--
+-- Run: dpm test --files daml/Nelva/Test/SettleTest.daml
+module Nelva.Test.SettleTest where
+
+import Daml.Script
+import DA.Assert ((===))
+import DA.Time (addRelTime, days)
+import Nelva.Asset
+import Nelva.Lending
+import Nelva.Credit
+import Nelva.Settlement
+
+data Parties = Parties
+  with
+    custodian : Party
+    lenderA : Party
+    lenderB : Party
+    borrower : Party
+    operator : Party
+    auditor : Party
+    oracle : Party
+
+setupParties : Script Parties
+setupParties = do
+  custodian <- allocateParty "Custodian"
+  lenderA <- allocateParty "LenderA"
+  lenderB <- allocateParty "LenderB"
+  borrower <- allocateParty "Borrower"
+  operator <- allocateParty "Operator"
+  auditor <- allocateParty "Auditor"
+  oracle <- allocateParty "Oracle"
+  pure Parties with custodian, lenderA, lenderB, borrower, operator, auditor, oracle
+
+mkBid : Parties -> Party -> Text -> Numeric 10 -> Numeric 10 -> Time -> Script (ContractId SealedBid)
+mkBid p lender bidId amount rate now = do
+  cash <- submit p.custodian do
+    createCmd Holding with custodian = p.custodian, owner = lender, amount, instrument = "USD", locker = None
+  locked <- submit lender do exerciseCmd cash Lock with newLocker = p.operator
+  submit lender do
+    createCmd SealedBid with
+      lender, matchingOperator = p.operator, auditor = p.auditor, bidId, holdingCid = locked
+      amount, bidRate = rate, instrument = "USD", deadline = addRelTime now (days 1)
+
+mkBorrow : Parties -> Numeric 10 -> Numeric 10 -> Tier -> Numeric 10 -> Time -> Script (ContractId BorrowIntent)
+mkBorrow p amount maxRate tier collateralAmount now = do
+  coll <- submit p.custodian do
+    createCmd Holding with custodian = p.custodian, owner = p.borrower, amount = collateralAmount, instrument = "USD", locker = None
+  lockedColl <- submit p.borrower do exerciseCmd coll Lock with newLocker = p.operator
+  submit p.borrower do
+    createCmd BorrowIntent with
+      borrower = p.borrower, matchingOperator = p.operator, auditor = p.auditor, borrowId = "X"
+      collateralCid = lockedColl, amount, maxRate, tier, instrument = "USD", deadline = addRelTime now (days 1)
+
+-- sum of a party's holding amounts
+holdingTotal : Party -> Script (Numeric 10)
+holdingTotal who = do
+  hs <- query @Holding who
+  pure (foldl (\a (_, h) -> a + h.amount) 0.0 hs)
+
+testMatchAcceptVerifyGreen : Script ()
+testMatchAcceptVerifyGreen = do
+  p <- setupParties
+  now <- getTime
+  bidA <- mkBid p p.lenderA "A" 100.0 0.03 now
+  bidB <- mkBid p p.lenderB "B" 100.0 0.05 now
+  borrow <- mkBorrow p 150.0 0.06 Bronze 300.0 now
+
+  round <- submit p.operator do createCmd MatchRound with operator = p.operator, auditor = p.auditor
+  proposals <- submit p.operator do
+    exerciseCmd round RunMatch with bidCids = [bidA, bidB], borrowCids = [borrow]
+  let [proposal] = proposals
+
+  -- auditor verifies BEFORE accept (bids still active) -> GREEN
+  vr <- submit p.auditor do createCmd VerifyRequest with auditor = p.auditor
+  badge <- submit p.auditor do exerciseCmd vr Verify with proposalCid = proposal
+  Some b <- queryContractId p.auditor badge
+  b.verdict === True
+
+  -- borrower accepts -> loan (readAs operator = visibility of operator-observed bids)
+  loan <- submitMulti [p.borrower] [p.operator] do exerciseCmd proposal Accept
+  Some l <- queryContractId p.borrower loan
+  l.principal === 150.0
+  l.blendedRate === 0.0366666667
+
+  -- borrower repays: A owed 103 (100@3%), B owed 52.5 (50@5%); provide 160
+  cs <- submit p.operator do
+    createCmd CreditScore with operator = p.operator, borrower = p.borrower, tier = Bronze, loansRepaid = 0, loansDefaulted = 0
+  repayFunds <- submit p.custodian do
+    createCmd Holding with custodian = p.custodian, owner = p.borrower, amount = 160.0, instrument = "USD", locker = None
+  submitMulti [p.borrower] [p.operator] do
+    exerciseCmd loan Repay with repaymentCid = repayFunds, creditScoreCid = cs
+
+  aPaid <- holdingTotal p.lenderA
+  bPaid <- holdingTotal p.lenderB
+  aPaid === 103.0          -- fully matched 100 @ 3% -> repaid 103
+  bPaid === 102.5          -- 50 unmatched remainder (unlocked at match) + 52.5 repay
+  -- credit tier upgraded Bronze -> Silver
+  [(_, cs2)] <- query @CreditScore p.borrower
+  cs2.tier === Silver
+
+testCorruptMatchVerifyRed : Script ()
+testCorruptMatchVerifyRed = do
+  p <- setupParties
+  now <- getTime
+  bidA <- mkBid p p.lenderA "A" 100.0 0.03 now
+  bidB <- mkBid p p.lenderB "B" 100.0 0.05 now
+  borrow <- mkBorrow p 150.0 0.06 Bronze 300.0 now
+  dummyColl <- submit p.custodian do
+    createCmd Holding with custodian = p.custodian, owner = p.borrower, amount = 300.0, instrument = "USD", locker = None
+
+  -- operator CHEATS: publishes a proposal that skips the cheaper A and uses only B@5%
+  proposal <- submit p.operator do
+    createCmd MatchProposal with
+      operator = p.operator
+      borrower = p.borrower
+      auditor = p.auditor
+      lenders = [p.lenderB]
+      proposalId = "P-X"
+      principal = 100.0
+      blendedRate = 0.05
+      tier = Bronze
+      matchedTicks = [MatchedTick p.lenderB "B" bidB 100.0 0.05]
+      inputBidCids = [bidA, bidB]
+      borrowCid = borrow
+      collateralCid = dummyColl
+      collateralAmount = 300.0
+      requiredCollateral = 150.0
+      instrument = "USD"
+      maturity = addRelTime now (days 30)
+
+  vr <- submit p.auditor do createCmd VerifyRequest with auditor = p.auditor
+  badge <- submit p.auditor do exerciseCmd vr Verify with proposalCid = proposal
+  Some b <- queryContractId p.auditor badge
+  b.verdict === False   -- RED: recompute says A100@3% + B50@5%, not B100@5%
+
+testLiquidate : Script ()
+testLiquidate = do
+  p <- setupParties
+  now <- getTime
+  bidA <- mkBid p p.lenderA "A" 100.0 0.03 now
+  bidB <- mkBid p p.lenderB "B" 100.0 0.05 now
+  borrow <- mkBorrow p 150.0 0.06 Silver 300.0 now   -- Silver: multiplier 1.8 -> req 270 <= 300
+
+  round <- submit p.operator do createCmd MatchRound with operator = p.operator, auditor = p.auditor
+  [proposal] <- submit p.operator do
+    exerciseCmd round RunMatch with bidCids = [bidA, bidB], borrowCids = [borrow]
+  loan <- submitMulti [p.borrower] [p.operator] do exerciseCmd proposal Accept
+
+  cs <- submit p.operator do
+    createCmd CreditScore with operator = p.operator, borrower = p.borrower, tier = Silver, loansRepaid = 0, loansDefaulted = 0
+  -- price drop: health = 300 * 0.5 / 150 = 1.0 < 1.5 -> liquidatable
+  price <- submit p.oracle do
+    createCmd PriceUpdate with oracle = p.oracle, operator = p.operator, instrument = "USD", price = 0.5, asOf = now
+  submit p.operator do exerciseCmd loan Liquidate with priceCid = price, creditScoreCid = cs
+
+  -- distributable = 300 - 15 (5% fee) = 285 ; A 100/150*285 = 190 ; B 50/150*285 = 95
+  aGot <- holdingTotal p.lenderA
+  bGot <- holdingTotal p.lenderB
+  aGot === 190.0           -- fully matched -> 100/150*285 = 190
+  bGot === 145.0           -- 50 unmatched remainder + 50/150*285 = 95 share
+  -- credit tier downgraded Silver -> Bronze
+  [(_, cs2)] <- query @CreditScore p.borrower
+  cs2.tier === Bronze

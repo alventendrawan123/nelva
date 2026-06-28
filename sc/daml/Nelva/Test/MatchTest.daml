@@ -1,0 +1,69 @@
+-- | Golden-vector + property tests for the pure matcher.
+--
+-- The golden vector PINS the exact deterministic output. If `testGoldenVector`
+-- fails only on `blendedRate`, that means Daml's `/` rounded to a value different
+-- from the literal below — replace the expected literal with the OBSERVED value:
+-- that observed value IS the pinned golden vector (operator + auditor will always
+-- reproduce it because they run the same compiled function).
+--
+-- Run: dpm test --files daml/Nelva/Test/MatchTest.daml
+module Nelva.Test.MatchTest where
+
+import Daml.Script
+import DA.Assert ((===))
+import Nelva.Match
+
+-- Cheapest-first fill, partial fill of the priciest tick, discriminatory rates.
+-- bids:  Alice 100 @ 3%, Bob 100 @ 5%   borrow: Charlie wants 150 @ max 6%
+-- => Alice 100@3% (full) then Bob 50@5% (partial). filled 150.
+--    weightedSum = 100*0.03 + 50*0.05 = 5.5 ; blended = 5.5/150 = 0.0366666667
+testGoldenVector : Script ()
+testGoldenVector = do
+  alice <- allocateParty "Alice"
+  bob <- allocateParty "Bob"
+  charlie <- allocateParty "Charlie"
+  let bids =
+        [ BidInput "a" alice 100.0 0.03
+        , BidInput "b" bob 100.0 0.05
+        ]
+      borrows = [ BorrowInput "x" charlie 150.0 0.06 ]
+      result = runDeterministicMatch bids borrows
+      expected = MatchResult
+        [ Fill with
+            borrowId = "x"
+            borrower = charlie
+            principal = 150.0
+            blendedRate = 0.0366666667
+            ticks =
+              [ Tick alice "a" 100.0 0.03   -- Alice keeps her 3% (discriminatory)
+              , Tick bob "b" 50.0 0.05      -- Bob keeps his 5%
+              ]
+        ]
+  result === expected
+
+-- maxRate gate: blended would be 5.5/100 = 0.055 > 0.05 => reject + rollback => no fill.
+testRejectAboveMaxRate : Script ()
+testRejectAboveMaxRate = do
+  alice <- allocateParty "Alice2"
+  bob <- allocateParty "Bob2"
+  charlie <- allocateParty "Charlie2"
+  let bids =
+        [ BidInput "a" alice 50.0 0.03
+        , BidInput "b" bob 100.0 0.08
+        ]
+      borrows = [ BorrowInput "x" charlie 100.0 0.05 ]
+      result = runDeterministicMatch bids borrows
+  result === MatchResult []
+
+-- Same inputs => same output (the property the auditor relies on).
+testDeterministicRerun : Script ()
+testDeterministicRerun = do
+  alice <- allocateParty "Alice3"
+  bob <- allocateParty "Bob3"
+  charlie <- allocateParty "Charlie3"
+  let bids =
+        [ BidInput "b" bob 100.0 0.05      -- deliberately out of order
+        , BidInput "a" alice 100.0 0.03
+        ]
+      borrows = [ BorrowInput "x" charlie 150.0 0.06 ]
+  runDeterministicMatch bids borrows === runDeterministicMatch bids borrows

@@ -1,0 +1,133 @@
+-- | Nelva.Match — the PURE, DETERMINISTIC sealed-bid matching engine.
+--
+-- This is the heart of Nelva. It is a plain function (no ledger, no IO) so that:
+--   1. the MatchingOperator can run it inside a Daml choice (RunMatch), and
+--   2. the Auditor can re-run the *identical* function inside Verify,
+-- and both get byte-identical results — that equality is the whole differentiator
+-- (GHOST runs its match in a TEE with a Math.random id, so nobody can re-verify it).
+--
+-- Ported faithfully from GHOST's settle-loans greedy algorithm:
+--   * borrows filled largest-first
+--   * lends consumed cheapest-rate-first
+--   * per-borrow weighted blended rate, rejected (rolled back) if it exceeds the
+--     borrower's maxRate
+--   * DISCRIMINATORY ticks: each lender keeps its OWN bid rate, not the blend.
+--
+-- Determinism rules (see d:\nelva\sc\skill.md):
+--   * no Date.now / Math.random (Daml has neither)
+--   * canonical sort INSIDE this function with a contractId/id tie-break, so the
+--     result never depends on the order the caller passed contracts in
+--   * Decimal (= Numeric 10) only; division is the single rounding point.
+module Nelva.Match where
+
+import DA.List (sortOn)
+import DA.Map (Map)
+import qualified DA.Map as Map
+
+-- | A lender's sealed bid, reduced to the pure inputs the matcher needs.
+-- `bidId` is a STABLE unique key (in templates: `show` of the SealedBid ContractId)
+-- used both as the tie-break in sorting and to reference the tick back to its bid.
+data BidInput = BidInput
+  with
+    bidId : Text
+    lender : Party
+    amount : Decimal
+    rate : Decimal
+  deriving (Eq, Show, Ord)
+
+-- | A borrower's request, reduced to the pure inputs the matcher needs.
+data BorrowInput = BorrowInput
+  with
+    borrowId : Text
+    borrower : Party
+    amount : Decimal
+    maxRate : Decimal
+  deriving (Eq, Show, Ord)
+
+-- | One lender's slice of a filled borrow. Keeps the lender's OWN rate.
+data Tick = Tick
+  with
+    lender : Party
+    bidId : Text
+    amount : Decimal
+    rate : Decimal
+  deriving (Eq, Show, Ord)
+
+-- | A matched borrow: which ticks funded it, total principal, blended rate charged.
+data Fill = Fill
+  with
+    borrowId : Text
+    borrower : Party
+    principal : Decimal
+    blendedRate : Decimal
+    ticks : [Tick]
+  deriving (Eq, Show, Ord)
+
+-- | The full deterministic result of a matching round.
+data MatchResult = MatchResult
+  with
+    fills : [Fill]
+  deriving (Eq, Show, Ord)
+
+-- | Accumulator threaded while filling a single borrow from the sorted bids.
+data FillAcc = FillAcc
+  with
+    remaining : Map Text Decimal
+    filled : Decimal
+    weightedSum : Decimal
+    ticks : [Tick]
+
+-- | Try to fill ONE borrow from the cheapest-first bid list, given current
+-- remaining capacity. Returns the Fill (if any) plus the updated capacity.
+-- On a maxRate rejection the ORIGINAL capacity is returned (atomic rollback).
+fillOne : Map Text Decimal -> [BidInput] -> BorrowInput -> (Optional Fill, Map Text Decimal)
+fillOne remaining0 bidsSorted borrow =
+  let
+    step : FillAcc -> BidInput -> FillAcc
+    step acc bid =
+      if acc.filled >= borrow.amount
+        then acc
+        else
+          let avail = optional 0.0 identity (Map.lookup bid.bidId acc.remaining)
+          in if avail <= 0.0
+               then acc
+               else
+                 let take = min avail (borrow.amount - acc.filled)
+                 in if take <= 0.0
+                      then acc
+                      else acc with
+                        remaining = Map.insert bid.bidId (avail - take) acc.remaining
+                        filled = acc.filled + take
+                        weightedSum = acc.weightedSum + take * bid.rate
+                        ticks = acc.ticks ++ [Tick bid.lender bid.bidId take bid.rate]
+    final = foldl step (FillAcc remaining0 0.0 0.0 []) bidsSorted
+  in
+    if final.filled <= 0.0
+      then (None, remaining0)
+      else
+        -- Division is the one rounding point. `/` returns a Decimal (Numeric 10).
+        -- TODO(harden): wrap in `roundNumeric 10 RoundingHalfEven` once confirmed
+        -- in-IDE (DA.Numeric) to pin the mode explicitly. Determinism already holds
+        -- because operator + auditor run this exact same compiled function.
+        let blended = final.weightedSum / final.filled
+        in if blended > borrow.maxRate
+             then (None, remaining0)                       -- reject + rollback capacity
+             else (Some (Fill borrow.borrowId borrow.borrower final.filled blended final.ticks), final.remaining)
+
+-- | THE matching engine. Pure + deterministic.
+runDeterministicMatch : [BidInput] -> [BorrowInput] -> MatchResult
+runDeterministicMatch bids borrows =
+  let
+    -- Canonical orderings (tie-broken by id so input order is irrelevant):
+    -- cheapest lends first; largest borrows first (negate amount = descending).
+    bidsSorted = sortOn (\b -> (b.rate, b.bidId)) bids
+    borrowsSorted = sortOn (\b -> (negate b.amount, b.borrowId)) borrows
+    remaining0 = Map.fromList (map (\b -> (b.bidId, b.amount)) bids)
+    step : ([Fill], Map Text Decimal) -> BorrowInput -> ([Fill], Map Text Decimal)
+    step (acc, rem) borrow =
+      let (mFill, rem') = fillOne rem bidsSorted borrow
+      in case mFill of
+           None -> (acc, rem')
+           Some f -> (acc ++ [f], rem')
+    (fills, _) = foldl step ([], remaining0) borrowsSorted
+  in MatchResult fills

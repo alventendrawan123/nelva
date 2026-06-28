@@ -1,0 +1,40 @@
+-- | Nelva.Credit — borrower credit tiers (Bronze..Platinum) as a deterministic
+-- state machine. Higher tier = lower collateral multiplier (more capital
+-- efficient). Repay a loan -> tier up ; default (liquidation) -> tier down.
+module Nelva.Credit where
+
+data Tier = Bronze | Silver | Gold | Platinum
+  deriving (Eq, Ord, Show, Enum, Bounded)
+
+-- collateral multiplier per tier (GHOST's 2.0 / 1.8 / 1.5 / 1.2)
+multiplier : Tier -> Numeric 10
+multiplier Bronze = 2.0
+multiplier Silver = 1.8
+multiplier Gold = 1.5
+multiplier Platinum = 1.2
+
+upgradeTier : Tier -> Tier
+upgradeTier t = if t == maxBound then t else succ t
+
+downgradeTier : Tier -> Tier
+downgradeTier t = if t == minBound then t else pred t
+
+template CreditScore
+  with
+    operator : Party
+    borrower : Party
+    tier : Tier
+    loansRepaid : Int
+    loansDefaulted : Int
+  where
+    signatory operator
+    observer borrower
+    -- single active per borrower enforced in business logic (no contract keys in 3.x)
+
+    choice BumpUp : ContractId CreditScore
+      controller operator
+      do create this with tier = upgradeTier tier, loansRepaid = loansRepaid + 1
+
+    choice BumpDown : ContractId CreditScore
+      controller operator
+      do create this with tier = downgradeTier tier, loansDefaulted = loansDefaulted + 1

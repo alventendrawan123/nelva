@@ -1,0 +1,97 @@
+-- | Nelva.Asset — hand-rolled cash/collateral holdings.
+--
+-- Custodian-signed holdings (the standard Daml pattern): the custodian is the
+-- single signatory, so ANY new holding created inside a choice is authorized by
+-- the custodian's authority propagating from the contract being exercised. That
+-- lets an owner (or an authorized locker) move funds without the recipient
+-- having to co-sign.
+--
+-- LOCK = consensual pre-authorization. When the owner locks a holding to a
+-- `locker` (the matching operator), the owner GRANTS that locker the right to
+-- draw it later (DrawLocked, controller = locker). This is how lender funds move
+-- on match WITHOUT the operator ever holding the lender's keys.
+--
+-- Production path = Daml Finance Holding.I + Transferable + Fungible + locking.
+module Nelva.Asset where
+
+import DA.Optional (optionalToList)
+
+template Holding
+  with
+    custodian : Party
+    owner : Party
+    amount : Numeric 10
+    instrument : Text
+    locker : Optional Party
+  where
+    signatory custodian
+    -- the locker observes too, so the operator it was locked to can DrawLocked it
+    observer owner, optionalToList locker
+    ensure amount > 0.0
+
+    -- Owner locks an UNLOCKED holding to `newLocker` (the pre-authorization).
+    choice Lock : ContractId Holding
+      with newLocker : Party
+      controller owner
+      do
+        assertMsg "already locked" (locker == None)
+        create this with locker = Some newLocker
+
+    -- Owner releases their own lock.
+    choice Unlock : ContractId Holding
+      controller owner
+      do create this with locker = None
+
+    -- Owner moves an UNLOCKED holding.
+    choice Transfer : ContractId Holding
+      with newOwner : Party
+      controller owner
+      do
+        assertMsg "holding is locked" (locker == None)
+        create this with owner = newOwner, locker = None
+
+    -- The LOCKER draws a LOCKED holding to a new owner. Authorized because the
+    -- owner already consented by locking to this party. Controller resolves to
+    -- the locker when locked (else falls back to owner, but the assert blocks it).
+    choice DrawLocked : ContractId Holding
+      with newOwner : Party
+      controller optional owner identity locker
+      do
+        assertMsg "holding is not locked" (locker /= None)
+        create this with owner = newOwner, locker = None
+
+    -- Owner splits an UNLOCKED holding: returns (piece of splitAmount, optional
+    -- remainder). Both stay owned by the owner. Used for repay/liquidation payouts.
+    choice Split : (ContractId Holding, Optional (ContractId Holding))
+      with splitAmount : Numeric 10
+      controller owner
+      do
+        assertMsg "holding is locked" (locker == None)
+        assertMsg "invalid split amount" (splitAmount > 0.0 && splitAmount <= amount)
+        a <- create this with amount = splitAmount
+        remOpt <-
+          if splitAmount < amount
+            then do
+              r <- create this with amount = amount - splitAmount
+              pure (Some r)
+            else pure None
+        pure (a, remOpt)
+
+    -- Partial draw: move `drawAmount` to newOwner, return optional remainder that
+    -- stays owned by the original owner and STILL locked (caller unlocks it).
+    choice DrawLockedAmount : (ContractId Holding, Optional (ContractId Holding))
+      with
+        newOwner : Party
+        drawAmount : Numeric 10
+      controller optional owner identity locker
+      do
+        assertMsg "holding is not locked" (locker /= None)
+        assertMsg "invalid draw amount" (drawAmount > 0.0 && drawAmount <= amount)
+        drawn <- create this with owner = newOwner, amount = drawAmount, locker = None
+        remOpt <-
+          if drawAmount < amount
+            then do
+              r <- create this with amount = amount - drawAmount
+              pure (Some r)
+            else pure None
+        pure (drawn, remOpt)

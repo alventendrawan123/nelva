@@ -1,0 +1,276 @@
+-- | Nelva.Settlement — on-ledger matching, atomic settlement, loan lifecycle
+-- (repay + pro-rata liquidation), and the AUDITOR re-verification (differentiator).
+--
+-- RunMatch (operator) and Verify (auditor) both call the SAME pure
+-- `runDeterministicMatch`, so the auditor reproduces the operator's result
+-- byte-for-byte and flips a RED badge on a dishonest match. GHOST cannot do this.
+module Nelva.Settlement where
+
+import DA.Time (addRelTime, days)
+import DA.Optional (fromSome)
+import Nelva.Asset
+import Nelva.Lending
+import Nelva.Match
+import Nelva.Credit
+
+-- On-ledger tick: like the pure Tick but carries the SealedBid ContractId so
+-- Accept can draw the funds. `bidId` kept for deterministic comparison in audit.
+data MatchedTick = MatchedTick
+  with
+    lender : Party
+    bidId : Text
+    bidCid : ContractId SealedBid
+    amount : Numeric 10
+    rate : Numeric 10
+  deriving (Eq, Show)
+
+-- Oracle price (Canton has no native feed). Mock/operator-signed for demo.
+template PriceUpdate
+  with
+    oracle : Party
+    operator : Party
+    instrument : Text
+    price : Numeric 10
+    asOf : Time
+  where
+    signatory oracle
+    observer operator
+
+template MatchProposal
+  with
+    operator : Party
+    borrower : Party
+    auditor : Party
+    lenders : [Party]
+    proposalId : Text
+    principal : Numeric 10
+    blendedRate : Numeric 10
+    tier : Tier
+    matchedTicks : [MatchedTick]
+    inputBidCids : [ContractId SealedBid]   -- FULL set incl losers (for audit)
+    borrowCid : ContractId BorrowIntent
+    collateralCid : ContractId Holding
+    collateralAmount : Numeric 10
+    requiredCollateral : Numeric 10
+    instrument : Text
+    maturity : Time
+  where
+    signatory operator
+    observer borrower, auditor, lenders
+
+    -- Borrower accepts: ONE atomic transaction draws every matched lender's funds
+    -- to the borrower, escrows the collateral, and creates the Loan. No operator
+    -- custody — lender funds move via the lock each lender set at bid time.
+    choice Accept : ContractId Loan
+      controller borrower
+      do
+        _ <- mapA
+              (\t -> exercise t.bidCid DrawForMatch with
+                       matchedRate = t.rate
+                       matchedAmount = t.amount
+                       recipient = borrower)
+              matchedTicks
+        escrow <- exercise collateralCid DrawLocked with newOwner = operator
+        create Loan with
+          borrower
+          operator
+          auditor
+          lenders
+          ticks = matchedTicks
+          principal
+          blendedRate
+          tier
+          collateralCid = escrow
+          collateralAmount
+          requiredCollateral
+          instrument
+          maturity
+
+    choice Reject : ()
+      controller borrower
+      do pure ()   -- MVP: archive proposal; 5% slash = TODO
+
+template Loan
+  with
+    borrower : Party
+    operator : Party
+    auditor : Party
+    lenders : [Party]
+    ticks : [MatchedTick]
+    principal : Numeric 10
+    blendedRate : Numeric 10
+    tier : Tier
+    collateralCid : ContractId Holding
+    collateralAmount : Numeric 10
+    requiredCollateral : Numeric 10
+    instrument : Text
+    maturity : Time
+  where
+    signatory borrower, operator
+    observer auditor, lenders
+    ensure collateralAmount >= requiredCollateral   -- ledger-enforced over-collateralization
+
+    -- Borrower repays: pays each lender principal + flat interest (at THEIR own
+    -- rate, discriminatory) from `repaymentCid`, releases collateral, tier up.
+    choice Repay : ()
+      with
+        repaymentCid : ContractId Holding
+        creditScoreCid : ContractId CreditScore
+      controller borrower
+      do
+        _ <- payLenders (Some repaymentCid) ticks
+        _ <- exercise collateralCid Transfer with newOwner = borrower
+        _ <- exercise creditScoreCid BumpUp
+        pure ()
+
+    -- Operator liquidates an unhealthy/matured loan: 5% fee (kept by operator) +
+    -- 95% pro-rata to lenders by matched amount, dust -> last lender; tier down.
+    choice Liquidate : ()
+      with
+        priceCid : ContractId PriceUpdate
+        creditScoreCid : ContractId CreditScore
+      controller operator
+      do
+        pu <- fetch priceCid
+        now <- getTime
+        assertMsg "wrong instrument" (pu.instrument == instrument)
+        let health = (collateralAmount * pu.price) / principal
+        assertMsg "loan still healthy and not matured" (health < 1.5 || now > maturity)
+        let distributable = collateralAmount - (collateralAmount * 0.05)
+            shares = sharesWithDust distributable principal ticks
+        distribute collateralCid shares    -- leftover (the 5% fee) stays with operator
+        _ <- exercise creditScoreCid BumpDown
+        pure ()
+
+template MatchRound
+  with
+    operator : Party
+    auditor : Party
+  where
+    signatory operator
+    observer auditor
+
+    -- Operator runs the deterministic match and publishes one MatchProposal per
+    -- filled borrow (committing the FULL bid set incl losers).
+    choice RunMatch : [ContractId MatchProposal]
+      with
+        bidCids : [ContractId SealedBid]
+        borrowCids : [ContractId BorrowIntent]
+      controller operator
+      do
+        now <- getTime
+        bids <- mapA (\cid -> do b <- fetch cid; pure (cid, b)) bidCids
+        borrows <- mapA (\cid -> do b <- fetch cid; pure (cid, b)) borrowCids
+        let bidInputs = map (\(_, b) -> bidToInput b) bids
+            borrowInputs = map (\(_, b) -> borrowToInput b) borrows
+            result = runDeterministicMatch bidInputs borrowInputs
+            cidByBidId = map (\(cid, b) -> (b.bidId, cid)) bids
+            borrowByBorrowId = map (\(cid, b) -> (b.borrowId, (cid, b))) borrows
+        mapA
+          (\f -> do
+            let mtks = map
+                        (\t -> MatchedTick t.lender t.bidId (fromSome (lookup t.bidId cidByBidId)) t.amount t.rate)
+                        f.ticks
+                (bcid, bi) = fromSome (lookup f.borrowId borrowByBorrowId)
+                reqColl = f.principal * multiplier bi.tier
+            coll <- fetch bi.collateralCid
+            create MatchProposal with
+              operator
+              borrower = f.borrower
+              auditor = bi.auditor
+              lenders = map (\t -> t.lender) f.ticks
+              proposalId = "P-" <> f.borrowId
+              principal = f.principal
+              blendedRate = f.blendedRate
+              tier = bi.tier
+              matchedTicks = mtks
+              inputBidCids = bidCids
+              borrowCid = bcid
+              collateralCid = bi.collateralCid
+              collateralAmount = coll.amount
+              requiredCollateral = reqColl
+              instrument = bi.instrument
+              maturity = addRelTime now (days 30))
+          result.fills
+
+-- Auditor re-verification (the differentiator).
+template VerifyRequest
+  with
+    auditor : Party
+  where
+    signatory auditor
+
+    -- Re-runs the IDENTICAL deterministic match over the proposal's committed
+    -- bids + borrow and compares to the published ticks/blended rate.
+    -- Match -> GREEN ; any divergence -> RED.
+    nonconsuming choice Verify : ContractId AuditBadge
+      with proposalCid : ContractId MatchProposal
+      controller auditor
+      do
+        p <- fetch proposalCid
+        bids <- mapA (\cid -> fetch cid) p.inputBidCids
+        bi <- fetch p.borrowCid
+        let bidInputs = map bidToInput bids
+            recomputed = runDeterministicMatch bidInputs [borrowToInput bi]
+            expectedTicks = case recomputed.fills of
+                              (f :: _) -> f.ticks
+                              [] -> []
+            expectedBlended = case recomputed.fills of
+                                (f :: _) -> f.blendedRate
+                                [] -> 0.0
+            publishedTicks = map (\mt -> Tick mt.lender mt.bidId mt.amount mt.rate) p.matchedTicks
+            ok = expectedTicks == publishedTicks && expectedBlended == p.blendedRate
+        create AuditBadge with
+          auditor
+          operator = p.operator
+          borrower = p.borrower
+          lenders = p.lenders
+          proposalId = p.proposalId
+          verdict = ok
+
+template AuditBadge
+  with
+    auditor : Party
+    operator : Party
+    borrower : Party
+    lenders : [Party]
+    proposalId : Text
+    verdict : Bool   -- True = GREEN (honest match), False = RED (dishonest)
+  where
+    signatory auditor
+    observer operator, borrower, lenders
+
+-- ── helpers ────────────────────────────────────────────────────────────────
+
+-- Pay each lender principal + flat interest (rate * amount) from the borrower's
+-- repayment holding, splitting it piece by piece. Aborts if underfunded.
+payLenders : Optional (ContractId Holding) -> [MatchedTick] -> Update (Optional (ContractId Holding))
+payLenders remOpt [] = pure remOpt
+payLenders None (_ :: _) = abort "insufficient repayment funds"
+payLenders (Some remCid) (t :: ts) = do
+  let owed = t.amount + (t.amount * t.rate)
+  (piece, rest) <- exercise remCid Split with splitAmount = owed
+  _ <- exercise piece Transfer with newOwner = t.lender
+  payLenders rest ts
+
+-- Pro-rata shares of `distributable` by tick amount / totalPrincipal, with any
+-- rounding dust assigned to the LAST lender so sum-of-parts == distributable.
+sharesWithDust : Numeric 10 -> Numeric 10 -> [MatchedTick] -> [(Party, Numeric 10)]
+sharesWithDust distributable totalPrincipal ticks =
+  let raw = map (\t -> (t.lender, distributable * t.amount / totalPrincipal)) ticks
+      summed = foldl (\acc (_, s) -> acc + s) 0.0 raw
+      dust = distributable - summed
+  in case reverse raw of
+       ((p, s) :: rest) -> reverse ((p, s + dust) :: rest)
+       [] -> []
+
+-- Split the seized collateral, transferring each lender's share; leftover (fee)
+-- stays owned by the holder (operator).
+distribute : ContractId Holding -> [(Party, Numeric 10)] -> Update ()
+distribute _ [] = pure ()
+distribute remCid ((lender, share) :: rest) = do
+  (piece, remOpt) <- exercise remCid Split with splitAmount = share
+  _ <- exercise piece Transfer with newOwner = lender
+  case remOpt of
+    Some r -> distribute r rest
+    None -> pure ()

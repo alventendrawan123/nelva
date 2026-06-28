@@ -1,0 +1,8 @@
+sdk-version: 3.4.11
+name: nelva-sc
+source: daml
+version: 0.1.0
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script

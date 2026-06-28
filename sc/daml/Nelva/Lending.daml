@@ -1,0 +1,83 @@
+-- | Nelva.Lending — sealed bids and borrow intents.
+--
+-- Privacy is STRUCTURAL: a SealedBid is signed by the lender and observed ONLY
+-- by the matching operator + auditor. Rival lenders are NOT observers, so by
+-- Canton sub-transaction projection they cannot see each other's rate — no
+-- encryption needed (this is what replaces GHOST's ECIES + TEE).
+--
+-- `bidId` / `borrowId` are stable app-assigned unique keys (set by the BE) used
+-- as the deterministic tie-break + tick reference in the matcher. They make the
+-- match order-independent and let the auditor re-run reproducibly.
+module Nelva.Lending where
+
+import Nelva.Asset
+import Nelva.Match
+import Nelva.Credit (Tier)
+
+template SealedBid
+  with
+    lender : Party
+    matchingOperator : Party
+    auditor : Party
+    bidId : Text
+    holdingCid : ContractId Holding
+    amount : Numeric 10
+    bidRate : Numeric 10
+    instrument : Text
+    deadline : Time
+  where
+    signatory lender
+    observer matchingOperator, auditor
+    ensure amount > 0.0
+
+    -- Operator draws `matchedAmount` of this bid into a match at `matchedRate`
+    -- (must honor the cap). Atomically moves that portion of the locked funds to
+    -- `recipient` and returns any unused remainder to the lender. Consumes the bid.
+    choice DrawForMatch : ContractId Holding
+      with
+        matchedRate : Numeric 10
+        matchedAmount : Numeric 10
+        recipient : Party
+      controller matchingOperator
+      do
+        assertMsg "matched rate exceeds bid rate" (matchedRate <= bidRate)
+        assertMsg "matched amount exceeds bid" (matchedAmount > 0.0 && matchedAmount <= amount)
+        (drawn, remOpt) <- exercise holdingCid DrawLockedAmount with newOwner = recipient, drawAmount = matchedAmount
+        case remOpt of
+          Some rem -> do
+            _ <- exercise rem Unlock
+            pure ()
+          None -> pure ()
+        pure drawn
+
+    -- After the deadline, the lender reclaims their funds (anti-griefing).
+    choice WithdrawBid : ContractId Holding
+      controller lender
+      do
+        now <- getTime
+        assertMsg "bid not yet expired" (now > deadline)
+        exercise holdingCid Unlock
+
+template BorrowIntent
+  with
+    borrower : Party
+    matchingOperator : Party
+    auditor : Party
+    borrowId : Text
+    collateralCid : ContractId Holding
+    amount : Numeric 10
+    maxRate : Numeric 10
+    tier : Tier
+    instrument : Text
+    deadline : Time
+  where
+    signatory borrower
+    observer matchingOperator, auditor
+    ensure amount > 0.0
+
+-- Mappers to the pure matcher inputs.
+bidToInput : SealedBid -> BidInput
+bidToInput sb = BidInput with bidId = sb.bidId, lender = sb.lender, amount = sb.amount, rate = sb.bidRate
+
+borrowToInput : BorrowIntent -> BorrowInput
+borrowToInput bi = BorrowInput with borrowId = bi.borrowId, borrower = bi.borrower, amount = bi.amount, maxRate = bi.maxRate
