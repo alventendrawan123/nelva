@@ -25,6 +25,21 @@ function requireParty(req: Request, res: Response): string | null {
   if (!party) { res.status(401).json({ error: "missing Authorization: Bearer <party>" }); return null; }
   return party;
 }
+// NOTE: dev auth trusts the Bearer token AS the party name. Fine for a LOCALHOST
+// demo; for a network-exposed deployment, enable real JWT validation (canton mode
+// validates outbound; add inbound issuer/sig/exp/aud checks here). requireRole at
+// least enforces correct role semantics on sensitive routes.
+function requireRole(req: Request, res: Response, role: string): string | null {
+  const { party, role: r } = who(req);
+  if (!party) { res.status(401).json({ error: "missing Authorization: Bearer <party>" }); return null; }
+  if (r !== role) { res.status(403).json({ error: `requires role: ${role}` }); return null; }
+  return party;
+}
+function posNum(v: any, name: string): number {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) throw new Error(`invalid ${name}: must be a positive number`);
+  return n;
+}
 
 // ── auth ──
 app.post("/api/login", h(async (req, res) => {
@@ -38,7 +53,7 @@ app.get("/api/me", h(async (req, res) => res.json(who(req))));
 app.post("/api/bids", h(async (req, res) => {
   const party = requireParty(req, res); if (!party) return;
   const { amount, rate, instrument, durationDays } = req.body ?? {};
-  res.status(201).json(await ledger.createBid(party, { amount: Number(amount), rate: Number(rate), instrument, durationDays: Number(durationDays ?? 30) }));
+  res.status(201).json(await ledger.createBid(party, { amount: posNum(amount, "amount"), rate: posNum(rate, "rate"), instrument, durationDays: Number(durationDays ?? 30) }));
 }));
 app.get("/api/bids", h(async (req, res) => res.json(await ledger.listBids(who(req).party))));
 app.delete("/api/bids/:id", h(async (req, res) => {
@@ -50,7 +65,7 @@ app.delete("/api/bids/:id", h(async (req, res) => {
 app.post("/api/borrow", h(async (req, res) => {
   const party = requireParty(req, res); if (!party) return;
   const { amount, maxRate, collateralAmount, instrument } = req.body ?? {};
-  res.status(201).json(await ledger.createBorrow(party, { amount: Number(amount), maxRate: Number(maxRate), collateralAmount: Number(collateralAmount), instrument }));
+  res.status(201).json(await ledger.createBorrow(party, { amount: posNum(amount, "amount"), maxRate: posNum(maxRate, "maxRate"), collateralAmount: posNum(collateralAmount, "collateralAmount"), instrument }));
 }));
 app.get("/api/borrow", h(async (req, res) => res.json(await ledger.listBorrows(who(req).party))));
 app.get("/api/proposals", h(async (req, res) => res.json(await ledger.listProposals(who(req).party))));
@@ -68,17 +83,17 @@ app.post("/api/loans/:id/repay", h(async (req, res) => {
   res.json(await ledger.repay(party, req.params.id));
 }));
 
-// ── operator (admin / demo controls) ──
-app.post("/api/admin/run-match", h(async (_req, res) => res.json({ proposals: await ledger.runMatch() })));
-app.post("/api/admin/cheat-match", h(async (_req, res) => res.json({ proposals: await ledger.runCheatMatch() })));
-app.post("/api/admin/price", h(async (req, res) => res.json(await ledger.setPrice(String(req.body?.instrument ?? "USD"), Number(req.body?.price)))));
-app.post("/api/admin/liquidate/:loanId", h(async (req, res) => res.json(await ledger.liquidate(req.params.loanId))));
-app.post("/api/admin/seed", h(async (_req, res) => { await ledger.seed(); res.json({ ok: true }); }));
+// ── operator (admin / demo controls) — operator role only ──
+app.post("/api/admin/run-match", h(async (req, res) => { if (!requireRole(req, res, "operator")) return; res.json({ proposals: await ledger.runMatch() }); }));
+app.post("/api/admin/cheat-match", h(async (req, res) => { if (!requireRole(req, res, "operator")) return; res.json({ proposals: await ledger.runCheatMatch() }); }));
+app.post("/api/admin/price", h(async (req, res) => { if (!requireRole(req, res, "operator")) return; res.json(await ledger.setPrice(String(req.body?.instrument ?? "USD"), posNum(req.body?.price, "price"))); }));
+app.post("/api/admin/liquidate/:loanId", h(async (req, res) => { if (!requireRole(req, res, "operator")) return; res.json(await ledger.liquidate(req.params.loanId)); }));
+app.post("/api/admin/seed", h(async (req, res) => { if (!requireRole(req, res, "operator")) return; await ledger.seed(); res.json({ ok: true }); }));
 
-// ── auditor (differentiator) ──
-app.get("/api/audit/bids", h(async (_req, res) => res.json(await ledger.auditBids())));
+// ── auditor (differentiator) — auditor role only ──
+app.get("/api/audit/bids", h(async (req, res) => { if (!requireRole(req, res, "auditor")) return; res.json(await ledger.auditBids()); }));
 app.post("/api/audit/verify/:proposalId", h(async (req, res) => {
-  const party = requireParty(req, res); if (!party) return;
+  const party = requireRole(req, res, "auditor"); if (!party) return;
   res.json(await ledger.verify(party, req.params.proposalId));
 }));
 app.get("/api/audit/badges", h(async (_req, res) => res.json(await ledger.listBadges())));

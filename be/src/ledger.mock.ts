@@ -31,7 +31,8 @@ export class MockLedger implements Ledger {
   async listProposals(viewer?: string): Promise<MatchProposal[]> {
     const r = roleOf(viewer);
     if (r === "operator" || r === "auditor") return S.db.proposals;
-    return S.db.proposals.filter((p) => p.borrower === viewer);
+    // borrower sees own; matched lenders see proposals they're in (parity with Canton observers)
+    return S.db.proposals.filter((p) => p.borrower === viewer || p.ticks.some((t) => t.lender === viewer));
   }
   async accept(_party: string, proposalId: string): Promise<Loan> { return S.accept(proposalId); }
   async reject(_party: string, proposalId: string) { return S.reject(proposalId); }

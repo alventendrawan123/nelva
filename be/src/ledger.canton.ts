@@ -133,7 +133,7 @@ export class CantonLedger implements Ledger {
   private ticksDto(ts: any[]) { return (ts ?? []).map((t) => ({ lender: nameOf(t.lender), bidId: t.bidId, amount: Number(t.amount), rate: Number(t.rate) })); }
   private propDto(x: CW): MatchProposal {
     const a = x.arg;
-    return { proposalId: x.cid, borrowId: "", borrower: nameOf(a.borrower), principal: Number(a.principal), blendedRate: Number(a.blendedRate), tier: a.tier as Tier, ticks: this.ticksDto(a.matchedTicks), inputBidIds: a.inputBidCids ?? [], status: "PENDING" };
+    return { proposalId: x.cid, borrowId: String(a.proposalId ?? "").replace(/^P-/, ""), borrower: nameOf(a.borrower), principal: Number(a.principal), blendedRate: Number(a.blendedRate), tier: a.tier as Tier, ticks: this.ticksDto(a.matchedTicks), inputBidIds: a.inputBidCids ?? [], status: "PENDING" };
   }
   private loanDto(x: CW): Loan {
     const a = x.arg;
