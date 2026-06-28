@@ -3,7 +3,7 @@
 -- Privacy is STRUCTURAL: a SealedBid is signed by the lender and observed ONLY
 -- by the matching operator + auditor. Rival lenders are NOT observers, so by
 -- Canton sub-transaction projection they cannot see each other's rate — no
--- encryption needed (this is what replaces GHOST's ECIES + TEE).
+-- encryption needed — privacy comes from Canton's per-party scoping, not crypto.
 --
 -- `bidId` / `borrowId` are stable app-assigned unique keys (set by the BE) used
 -- as the deterministic tie-break + tick reference in the matcher. They make the

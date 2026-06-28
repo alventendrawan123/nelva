@@ -6,7 +6,7 @@ module Nelva.Credit where
 data Tier = Bronze | Silver | Gold | Platinum
   deriving (Eq, Ord, Show, Enum, Bounded)
 
--- collateral multiplier per tier (GHOST's 2.0 / 1.8 / 1.5 / 1.2)
+-- collateral multiplier per tier (2.0 / 1.8 / 1.5 / 1.2)
 multiplier : Tier -> Numeric 10
 multiplier Bronze = 2.0
 multiplier Silver = 1.8

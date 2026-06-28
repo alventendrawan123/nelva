@@ -4,9 +4,10 @@
 --   1. the MatchingOperator can run it inside a Daml choice (RunMatch), and
 --   2. the Auditor can re-run the *identical* function inside Verify,
 -- and both get byte-identical results — that equality is the whole differentiator
--- (GHOST runs its match in a TEE with a Math.random id, so nobody can re-verify it).
+-- (a black-box matcher with a non-deterministic id cannot be re-verified; our
+-- determinism is exactly what makes independent auditor re-execution possible).
 --
--- Ported faithfully from GHOST's settle-loans greedy algorithm:
+-- A standard greedy discriminatory (pay-as-bid) sealed-bid auction:
 --   * borrows filled largest-first
 --   * lends consumed cheapest-rate-first
 --   * per-borrow weighted blended rate, rejected (rolled back) if it exceeds the

@@ -7,7 +7,7 @@
 
 ## 1. What this is & the BE mission
 
-**Project = Nelva**: "ATM of GHOST onto Canton" — private sealed-bid P2P lending with deterministic, auditable matching (Canton Network, Track 1 Private DeFi).
+**Project = Nelva**: a private sealed-bid P2P lending protocol on Canton with deterministic, auditable matching (Canton Network, Track 1 Private DeFi).
 
 **The smart contracts (Daml) are the heart. The backend is THIN.** All correctness, matching, authorization, and money logic live on-ledger in Daml. See `d:\nelva\sc\skill.md`.
 
@@ -75,7 +75,7 @@ POST /v2/commands/submit-and-wait
   "commands": [
     { "CreateCommand": {
         "templateId": "#nelva:Nelva.PriceUpdate:PriceUpdate",
-        "createArguments": { "oracle": "Oracle::1220...", "asset": "GHOST", "price": "1.2345" }
+        "createArguments": { "oracle": "Oracle::1220...", "asset": "USD", "price": "1.2345" }
     } }
   ],
   "commandId": "nelva-priceupdate-0001",

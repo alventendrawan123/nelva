@@ -3,7 +3,8 @@
 --
 -- RunMatch (operator) and Verify (auditor) both call the SAME pure
 -- `runDeterministicMatch`, so the auditor reproduces the operator's result
--- byte-for-byte and flips a RED badge on a dishonest match. GHOST cannot do this.
+-- byte-for-byte and flips a RED badge on a dishonest match — impossible with a
+-- black-box (e.g. TEE) matcher that is never re-executed.
 module Nelva.Settlement where
 
 import DA.Time (addRelTime, days)
@@ -89,7 +90,7 @@ template MatchProposal
 
     -- Borrower walks away: 5% of collateral is slashed to the operator, 95% is
     -- returned (unlocked) to the borrower. Discourages using proposals as free
-    -- rate discovery (GHOST's reject-penalty, made atomic + actually paid).
+    -- rate discovery (an atomic reject penalty that is actually paid out).
     choice Reject : ()
       controller borrower
       do

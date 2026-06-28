@@ -11,7 +11,7 @@ import { cheatMatch, type BidInput } from "./match.js";
 
 const BASE = process.env.JSON_LEDGER_API ?? "http://localhost:7575";
 // package id of the deployed DAR — UPDATE on every SC rebuild (dpm damlc inspect-dar --json)
-const PKG = process.env.NELVA_PACKAGE_ID ?? "087f67acdad72f68f67456ced5986f5ee6b88b48d332d19bb88c53786d2eea3a";
+const PKG = process.env.NELVA_PACKAGE_ID ?? "2ca7c73857de562d7a62f1550384a577c24fa1c5db614c4fd4028c7ddb1847fe";
 const USER = process.env.LEDGER_USER_ID ?? "nelva-be";
 const DEADLINE = "2030-01-01T00:00:00Z";
 

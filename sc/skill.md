@@ -2,7 +2,7 @@
 
 > **What this is.** A pinned, verified build guide for the **Nelva** smart-contract layer (Daml on Canton). It exists to stop a future AI from hallucinating deprecated Daml 2.x tooling, wrong syntax, or non-existent functions. Every load-bearing fact below was cross-checked against live sources (docs.canton.network, docs.digitalasset.com/build/3.4–3.5, cn-quickstart `.env`, npm). Items not confirmed against a live source are marked **(UNVERIFIED)**.
 >
-> **Nelva SC mission.** Nelva = *ATM of GHOST onto Canton* — private, sealed-bid P2P lending with **deterministic, auditable matching** (Track 1, Private DeFi). The Daml layer is the heart: lenders post sealed bids whose funds are locked at bid time; an operator runs a **pure, deterministic** matching algorithm to create Loans via **signature-propagation** (no operator god-mode); an auditor independently re-runs the *same* pure function and the result must match **byte-for-byte** (the golden-vector test).
+> **Nelva SC mission.** Nelva = a private, sealed-bid P2P lending protocol on Canton with **deterministic, auditable matching** (Track 1, Private DeFi). The Daml layer is the heart: lenders post sealed bids whose funds are locked at bid time; an operator runs a **pure, deterministic** matching algorithm to create Loans via **signature-propagation** (no operator god-mode); an auditor independently re-runs the *same* pure function and the result must match **byte-for-byte** (the golden-vector test).
 >
 > Repo layout: `d:\nelva\sc` (this — Daml) and `d:\nelva\be` (off-ledger Canton clients). FE (Bima) is out of scope here.
 
