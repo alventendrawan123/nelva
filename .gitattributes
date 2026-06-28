@@ -1,0 +1,6 @@
+# Make GitHub Linguist count + show Daml in the Languages bar (Canton project).
+*.daml linguist-language=Daml
+*.daml linguist-detectable=true
+
+# Generated/large files shouldn't skew language stats.
+be/package-lock.json linguist-generated=true
