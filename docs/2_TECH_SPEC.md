@@ -81,7 +81,7 @@ Inti deterministik: satu modul pure `runDeterministicMatch` dipakai SAMA oleh `R
 ---
 
 ## 5. API CONTRACT (BE ⇄ FE)  ◄── BIMA BACA INI
-Base URL (dev): `http://localhost:8080/api`. Semua butuh header `Authorization: Bearer <token>`.
+Base URL (dev): `http://localhost:8090/api` (8080 sering dipakai Apache/XAMPP). Semua butuh header `Authorization: Bearer <token>`.
 Format: JSON, **camelCase**. Angka uang = string desimal (hindari float JS), mis. `"100.0"`.
 
 ### 5.0 Auth (dev simpel)

@@ -71,6 +71,7 @@ template MatchProposal
                        recipient = borrower)
               matchedTicks
         escrow <- exercise collateralCid DrawLocked with newOwner = operator
+        archive borrowCid   -- consume the matched intent so it can't be re-matched
         create Loan with
           borrower
           operator
@@ -86,9 +87,18 @@ template MatchProposal
           instrument
           maturity
 
+    -- Borrower walks away: 5% of collateral is slashed to the operator, 95% is
+    -- returned (unlocked) to the borrower. Discourages using proposals as free
+    -- rate discovery (GHOST's reject-penalty, made atomic + actually paid).
     choice Reject : ()
       controller borrower
-      do pure ()   -- MVP: archive proposal; 5% slash = TODO
+      do
+        (_slash, remOpt) <- exercise collateralCid DrawLockedAmount with
+          newOwner = operator
+          drawAmount = collateralAmount * 0.05
+        case remOpt of
+          Some rem -> do _ <- exercise rem Unlock; pure ()
+          None -> pure ()
 
 template Loan
   with

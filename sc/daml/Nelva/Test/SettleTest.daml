@@ -59,7 +59,7 @@ mkBorrow p amount maxRate tier collateralAmount now = do
 holdingTotal : Party -> Script (Numeric 10)
 holdingTotal who = do
   hs <- query @Holding who
-  pure (foldl (\a (_, h) -> a + h.amount) 0.0 hs)
+  pure (foldl (\a (_, h) -> if h.owner == who then a + h.amount else a) 0.0 hs)
 
 testMatchAcceptVerifyGreen : Script ()
 testMatchAcceptVerifyGreen = do
@@ -136,6 +136,21 @@ testCorruptMatchVerifyRed = do
   badge <- submit p.auditor do exerciseCmd vr Verify with proposalCid = proposal
   Some b <- queryContractId p.auditor badge
   b.verdict === False   -- RED: recompute says A100@3% + B50@5%, not B100@5%
+
+testRejectSlash : Script ()
+testRejectSlash = do
+  p <- setupParties
+  now <- getTime
+  bidA <- mkBid p p.lenderA "A" 100.0 0.03 now
+  borrow <- mkBorrow p 80.0 0.06 Bronze 200.0 now
+  round <- submit p.operator do createCmd MatchRound with operator = p.operator, auditor = p.auditor
+  [proposal] <- submit p.operator do exerciseCmd round RunMatch with bidCids = [bidA], borrowCids = [borrow]
+  -- borrower rejects -> 5% of 200 collateral (=10) slashed to operator, 190 back
+  submitMulti [p.borrower] [p.operator] do exerciseCmd proposal Reject
+  opGot <- holdingTotal p.operator
+  borGot <- holdingTotal p.borrower
+  opGot === 10.0     -- 5% slash
+  borGot === 190.0   -- 95% returned
 
 testLiquidate : Script ()
 testLiquidate = do
