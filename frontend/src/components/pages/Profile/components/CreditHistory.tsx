@@ -1,5 +1,6 @@
 "use client";
 
+import { TxRow } from "@/components/shared/TxRow";
 import { Card } from "@/components/ui/Card";
 import { useProfile } from "@/lib/api/hooks";
 import { formatAmount, formatRate } from "@/lib/format";
@@ -14,16 +15,15 @@ export function CreditHistory() {
       {settled.length > 0 ? (
         <ul className="space-y-3">
           {settled.map((loan) => (
-            <li
-              key={loan.loanId}
-              className="flex items-center justify-between text-sm"
-            >
-              <span className="text-muted">
-                {formatAmount(loan.principal)} at {formatRate(loan.blendedRate)}
-              </span>
-              <span className="font-semibold text-foreground">
-                {loan.status}
-              </span>
+            <li key={loan.loanId}>
+              <TxRow
+                symbol="nUSD"
+                title={`${formatAmount(loan.principal)} at ${formatRate(loan.blendedRate)}`}
+                subtitle={`Loan - ${loan.borrower}`}
+                idLabel={loan.loanId}
+                status={loan.status}
+                statusTone={loan.status === "REPAID" ? "success" : "danger"}
+              />
             </li>
           ))}
         </ul>

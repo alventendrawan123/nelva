@@ -1,6 +1,6 @@
-import { Bell } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { BalancePill } from "@/components/layout/BalancePill";
 import { NavLinks } from "@/components/layout/NavLinks";
 import { PersonaSwitcher } from "@/components/layout/PersonaSwitcher";
 import { WalletPill } from "@/components/layout/WalletPill";
@@ -27,13 +27,7 @@ export function Navbar() {
 
         <div className="flex items-center gap-3">
           <PersonaSwitcher />
-          <button
-            type="button"
-            aria-label="Notifications"
-            className="rounded-full p-2 text-muted transition-colors hover:text-foreground"
-          >
-            <Bell className="h-5 w-5" />
-          </button>
+          <BalancePill />
           <WalletPill />
         </div>
       </div>

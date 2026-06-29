@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { QueryState } from "@/components/shared/QueryState";
+import { TxRow } from "@/components/shared/TxRow";
 import { AmountField } from "@/components/ui/AmountField";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { TokenChip } from "@/components/ui/TokenChip";
@@ -69,7 +69,7 @@ export function LendPanel() {
         </Button>
       </Card>
 
-      <section className="mt-8">
+      <section className="mt-8" data-tour="lend-bids">
         <h2 className="mb-3 text-lg font-bold text-foreground">
           My sealed bids
         </h2>
@@ -82,22 +82,16 @@ export function LendPanel() {
         >
           <ul className="space-y-3">
             {bids.data?.map((bid) => (
-              <Card
-                key={bid.bidId}
-                className="flex items-center justify-between p-5"
-              >
-                <div>
-                  <p className="font-semibold text-foreground">
-                    {formatAmount(bid.amount)} at {formatRate(bid.rate)}
-                  </p>
-                  <p className="text-sm text-muted">
-                    Sealed bid - {bid.lender}
-                  </p>
-                </div>
-                <Badge tone={bid.status === "MATCHED" ? "success" : "accent"}>
-                  {bid.status}
-                </Badge>
-              </Card>
+              <li key={bid.bidId}>
+                <TxRow
+                  symbol="nUSD"
+                  title={`${formatAmount(bid.amount)} at ${formatRate(bid.rate)}`}
+                  subtitle={`Sealed bid - ${bid.lender}`}
+                  idLabel={bid.bidId}
+                  status={bid.status}
+                  statusTone={bid.status === "MATCHED" ? "success" : "accent"}
+                />
+              </li>
             ))}
           </ul>
         </QueryState>

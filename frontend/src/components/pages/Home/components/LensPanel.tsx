@@ -398,8 +398,11 @@ function PerspectiveCard({ column }: { column: LensColumn }) {
       </div>
       <p className="text-xs text-muted">{column.caption}</p>
       <ul className="flex flex-1 flex-col gap-2 border-t border-border pt-3">
-        {column.cells.map((cell) => (
-          <li key={cell.label} className="flex items-start gap-2 text-xs">
+        {column.cells.map((cell, cellIndex) => (
+          <li
+            key={`${column.persona}-${cellIndex}`}
+            className="flex items-start gap-2 text-xs"
+          >
             <span
               className={`mt-1 h-2 w-2 shrink-0 rounded-full ${DOT_CLASSES[cell.tone]}`}
               aria-hidden

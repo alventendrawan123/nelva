@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { QueryState } from "@/components/shared/QueryState";
+import { TxRow } from "@/components/shared/TxRow";
 import { AmountField } from "@/components/ui/AmountField";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -50,7 +51,7 @@ export function BorrowPanel() {
         title="Borrow with privacy"
         description="Submit a private borrow intent. Your max rate stays sealed and is only revealed inside Canton's deterministic matching engine."
       />
-      <Card className="space-y-4 p-6">
+      <Card className="space-y-4 p-6" data-tour="borrow-form">
         <AmountField
           id="borrow-amount"
           label="You're borrowing"
@@ -128,6 +129,7 @@ export function BorrowPanel() {
                   <Button
                     onClick={() => accept.mutate(proposal.proposalId)}
                     disabled={accept.isPending}
+                    data-tour="accept-btn"
                   >
                     Accept
                   </Button>
@@ -145,7 +147,7 @@ export function BorrowPanel() {
         </QueryState>
       </section>
 
-      <section className="mt-8">
+      <section className="mt-8" data-tour="loans-list">
         <h2 className="mb-3 text-lg font-bold text-foreground">Your loans</h2>
         <QueryState
           isLoading={loans.isLoading}
@@ -156,34 +158,28 @@ export function BorrowPanel() {
         >
           <ul className="space-y-3">
             {loans.data?.map((loan) => (
-              <Card
-                key={loan.loanId}
-                className="flex items-center justify-between p-5"
-              >
-                <div>
-                  <p className="font-semibold text-foreground">
-                    {formatAmount(loan.principal)} at{" "}
-                    {formatRate(loan.blendedRate)}
-                  </p>
-                  <p className="text-sm text-muted">
-                    Collateral {formatAmount(loan.collateralAmount)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Badge tone={loan.status === "ACTIVE" ? "accent" : "success"}>
-                    {loan.status}
-                  </Badge>
-                  {loan.status === "ACTIVE" ? (
-                    <Button
-                      variant="secondary"
-                      onClick={() => repay.mutate(loan.loanId)}
-                      disabled={repay.isPending}
-                    >
-                      Repay
-                    </Button>
-                  ) : null}
-                </div>
-              </Card>
+              <li key={loan.loanId}>
+                <TxRow
+                  symbol="nUSD"
+                  title={`${formatAmount(loan.principal)} at ${formatRate(loan.blendedRate)}`}
+                  subtitle={`Collateral ${formatAmount(loan.collateralAmount)}`}
+                  idLabel={loan.loanId}
+                  status={loan.status}
+                  statusTone={loan.status === "ACTIVE" ? "accent" : "success"}
+                  trailing={
+                    loan.status === "ACTIVE" ? (
+                      <Button
+                        variant="secondary"
+                        onClick={() => repay.mutate(loan.loanId)}
+                        disabled={repay.isPending}
+                        className="px-4 py-2 text-xs"
+                      >
+                        Repay
+                      </Button>
+                    ) : null
+                  }
+                />
+              </li>
             ))}
           </ul>
         </QueryState>
