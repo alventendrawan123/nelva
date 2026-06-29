@@ -152,6 +152,13 @@ export class CantonLedger implements Ledger {
     return this.made(tree, "Credit:CreditScore").cid;
   }
 
+  // mint spare unlocked cash so a party's wallet shows available balance (not all locked)
+  private async fund(party: string, amount: number, instrument = "USD") {
+    const cust = await this.ensureParty("Custodian");
+    const owner = await this.ensureParty(party);
+    await this.create([cust], "Asset:Holding", { custodian: cust, owner, amount: String(amount), instrument, locker: null });
+  }
+
   // ── lifecycle ──
   async seed() {
     const op = await this.ensureParty("Operator");
@@ -160,6 +167,10 @@ export class CantonLedger implements Ledger {
     await this.createBid("LenderA", { amount: 100, rate: 0.03 });
     await this.createBid("LenderB", { amount: 100, rate: 0.05 });
     await this.createBorrow("Borrower", { amount: 150, maxRate: 0.06, collateralAmount: 300 });
+    // spare unlocked cash → wallet shows "available + locked", not 0
+    await this.fund("LenderA", 50);
+    await this.fund("LenderB", 50);
+    await this.fund("Borrower", 100);
   }
 
   async createBid(party: string, p: { amount: number; rate: number; instrument?: string; durationDays?: number }): Promise<Bid> {
