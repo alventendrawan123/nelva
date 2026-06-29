@@ -26,7 +26,7 @@
             └───────────────┬────────────────────────────────────────┘
                             │  HTTPS REST (JSON)  — API contract §5
             ┌───────────────▼────────────────────────────────────────┐
-  Alven ──► │  BE GATEWAY  (Node/TS)  — "Veridian-Scan"               │
+  Alven ──► │  BE GATEWAY  (Node/TS)  — read/query + bots             │
             │  - terjemah REST ⇄ JSON Ledger API v2                   │
             │  - JWT per-party (Keycloak)                             │
             │  - bots: Operator (RunMatch), Oracle (PriceUpdate)      │

@@ -47,7 +47,11 @@ app.post("/api/login", h(async (req, res) => {
   if (!party) throw new Error("party required");
   res.json({ token: party, party, role: roleOf(party) });
 }));
-app.get("/api/me", h(async (req, res) => res.json(who(req))));
+app.get("/api/me", h(async (req, res) => {
+  const w = who(req);
+  res.json({ ...w, partyId: w.party ? await ledger.partyId(w.party) : null });
+}));
+app.get("/api/holdings", h(async (req, res) => res.json(await ledger.holdings(who(req).party))));
 
 // ── lender ──
 app.post("/api/bids", h(async (req, res) => {

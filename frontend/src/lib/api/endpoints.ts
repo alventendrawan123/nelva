@@ -6,10 +6,14 @@ import {
   type BorrowIntent,
   bidSchema,
   borrowIntentSchema,
+  type Holding,
+  holdingSchema,
   type LensView,
   type Loan,
   lensViewSchema,
   loanSchema,
+  type Me,
+  meSchema,
   type MatchProposal,
   matchProposalSchema,
   type Status,
@@ -21,6 +25,10 @@ const AUDITOR = "Auditor";
 
 export const api = {
   status: () => call<Status>("/status", { schema: statusSchema }),
+
+  me: (party: string) => call<Me>("/me", { party, schema: meSchema }),
+  holdings: (party: string) =>
+    call<Holding[]>("/holdings", { party, schema: holdingSchema.array() }),
 
   myBids: (party: string) =>
     call<Bid[]>("/bids", { party, schema: bidSchema.array() }),

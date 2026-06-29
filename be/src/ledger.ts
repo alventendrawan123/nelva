@@ -1,7 +1,7 @@
 // Ledger interface + factory. server.ts talks ONLY to this, so swapping the
 // in-memory mock for the real Canton JSON Ledger API needs no route changes.
 // Pick the impl with env LEDGER_MODE=mock (default) | canton.
-import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge } from "./types.js";
+import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, HoldingView } from "./types.js";
 import { MockLedger } from "./ledger.mock.js";
 import { CantonLedger } from "./ledger.canton.js";
 
@@ -31,6 +31,9 @@ export interface Ledger {
   listBadges(): Promise<AuditBadge[]>;
   // hero
   lens(proposalId: string): Promise<any>;
+  // wallet (real, from ledger)
+  holdings(viewer?: string): Promise<HoldingView[]>;
+  partyId(name: string): Promise<string | null>;
 }
 
 export const LEDGER_MODE = process.env.LEDGER_MODE === "canton" ? "canton" : "mock";

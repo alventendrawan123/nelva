@@ -6,9 +6,9 @@
 ---
 
 ## 1. Ringkasan (1 paragraf)
-**Nelva** = pasar pinjam-meminjam (P2P lending) **privat** di **Canton** di mana lender memasang bunga secara **rahasia (sealed-bid)**, sebuah mesin pencocok (matching) menjodohkan lender↔borrower secara rahasia, **DAN** seorang **Auditor bisa membuktikan pencocokannya jujur tanpa pernah membuka bid siapa pun**. Ini hasil **ATM (Amati-Tiru-Modifikasi)** dari **GHOST Finance** (juara DeFi, jalan di EVM pakai TEE), dibangun ulang di Canton dengan privasi native + satu hal yang GHOST tak bisa: **matching yang bisa diaudit**.
+**Nelva** = pasar pinjam-meminjam (P2P lending) **privat** di **Canton** di mana lender memasang bunga secara **rahasia (sealed-bid)**, sebuah mesin pencocok (matching) menjodohkan lender↔borrower secara rahasia, **DAN** seorang **Auditor bisa membuktikan pencocokannya jujur tanpa pernah membuka bid siapa pun**. Implementasi **orisinal di Canton**: memanfaatkan privasi native + menambah satu hal yang pendekatan rahasia-via-black-box (enclave/TEE) tak bisa: **matching yang bisa diaudit**.
 
-**Satu kalimat jualan:** *"GHOST menyembunyikan bid pakai TEE black-box dengan match-id acak → tak ada yang bisa membuktikan matchnya jujur. Nelva menyembunyikan bid secara native di Canton + auditor bisa mengeksekusi ulang match deterministik atas bid yang KALAH → menangkap operator curang."*
+**Satu kalimat jualan:** *"Menyembunyikan bid di black-box (enclave) bikin matchnya tak bisa diperiksa ulang → kejujuran tak terbukti. Nelva menyembunyikan bid secara native di Canton + auditor mengeksekusi ulang match deterministik atas bid yang KALAH → operator curang ketahuan."*
 
 **Target:** menang **Encode "Build on Canton" — Track 1 (Private DeFi & Capital Markets)**.
 
@@ -20,7 +20,7 @@ Di DeFi lending biasa (Aave/Compound), **semuanya publik**: bunga, posisi, kolat
 2. **Free-rider pada pooled rate** — semua lender dapat bunga pool rata-rata → tak ada insentif jujur soal bunga → price discovery rusak.
 3. **Posisi telanjang** — kolateral & ambang likuidasi terlihat → liquidation attack + intel kompetitor.
 
-GHOST memperbaiki ini di EVM dengan **TEE** (enclave rahasia) — tapi karena TEE **menghapus semua** + match-id **acak (Math.random)**, **tak ada yang bisa memverifikasi ulang** bahwa matchnya jujur. Kamu hanya bisa *percaya* enclave.
+Pendekatan rahasia yang ada (mis. enclave/TEE black-box) menyembunyikan bid — tapi karena black-box **tak bisa diperiksa ulang** & hasilnya tak deterministik, **tak ada yang bisa memverifikasi** matchnya jujur. Kamu hanya bisa *percaya* enclave-nya.
 
 ---
 
@@ -28,7 +28,7 @@ GHOST memperbaiki ini di EVM dengan **TEE** (enclave rahasia) — tapi karena TE
 1. **Sealed-bid rate discovery** — lender submit bunga rahasia; rival tak bisa lihat bid satu sama lain (privasi **struktural** Canton, bukan enkripsi).
 2. **Discriminatory (pay-as-bid) pricing** — tiap lender dapat **bunganya sendiri** → bid jujur = strategi dominan.
 3. **Deterministic on-ledger matching** — algoritma greedy (lend termurah dulu) jalan sebagai **Daml choice** yang deterministik.
-4. **Auditable matching (DIFERENSIATOR)** — Auditor mengeksekusi ulang match yang sama atas **semua bid termasuk yang kalah** → cocok = **badge HIJAU**, operator curang/skip-lend-murah = **badge MERAH**. GHOST tak bisa ini.
+4. **Auditable matching (DIFERENSIATOR)** — Auditor mengeksekusi ulang match yang sama atas **semua bid termasuk yang kalah** → cocok = **badge HIJAU**, operator curang/skip-lend-murah = **badge MERAH**. Pendekatan black-box tak bisa ini (tak bisa di-replay).
 5. **Credit tiers + collateral + liquidation** — Bronze→Platinum (kolateral makin efisien), likuidasi otomatis bila tidak sehat.
 6. **Lens (fitur visual hero)** — pengganti sudut pandang: Lender / Borrower / Operator / Auditor / Orang-luar melihat data yang BERBEDA dari ledger yang sama → bukti privasi langsung di layar.
 
@@ -63,7 +63,7 @@ GHOST memperbaiki ini di EVM dengan **TEE** (enclave rahasia) — tapi karena TE
 ## 6. Diferensiator (kenapa menang)
 - Privasi = **inti**, bukan tempelan (killer feature Canton) → cocok Track 1.
 - **Auditability** = beat yang **belum ada pemenang Canton** punya.
-- Bonus: kita **memperbaiki bug nyata kode GHOST** by construction (settle atomik, no double-credit, over-collateral di-enforce ledger, dana terkonservasi).
+- Bonus: desain **by-construction** menghindari kelas bug umum di lending (settle atomik, no double-credit, over-collateral di-enforce ledger, dana terkonservasi).
 
 ---
 
@@ -80,7 +80,7 @@ GHOST memperbaiki ini di EVM dengan **TEE** (enclave rahasia) — tapi karena TE
 2. **Auditor butuh shared key** untuk cleartext rate (MVP; Canton tak punya TEE/ZK).
 3. **Dana terkunci saat bid** (ada `WithdrawBid` setelah deadline = anti-grief).
 4. **Oracle harga = pihak tepercaya** (mock untuk demo).
-5. Kita port **ekonomi GHOST yang terdokumentasi**, bukan kode-nya yang bug.
+5. Ekonomi lending (auction pay-as-bid, credit tier, likuidasi) = pola standar industri/teori lelang; implementasi Nelva **orisinal di Daml**.
 
 ---
 
@@ -91,7 +91,9 @@ GHOST memperbaiki ini di EVM dengan **TEE** (enclave rahasia) — tapi karena TE
 
 ---
 
-## 10. Status saat ini (2026-06-28)
-- ✅ SC `Match` (matcher pure deterministik) + `Asset` (Holding+lock) + `Lending` (SealedBid/BorrowIntent) — **compile + 5/5 test hijau**. Pola "operator tarik dana lender tanpa custody" sudah terbukti.
-- ⏳ Berikutnya: RunMatch→MatchProposal→Accept→Loan→Verify/AuditBadge.
+## 10. Status saat ini (2026-06-30)
+- ✅ **SC lengkap** (Match/Asset/Credit/Lending/Settlement) — **10/10 Daml test hijau**, full lifecycle (bid→match→accept→repay→liquidate→reject-slash→verify GREEN/RED).
+- ✅ **Jalan di Canton asli** (dpm sandbox, JSON Ledger API) end-to-end + **privasi per-party kebukti**.
+- ✅ **BE gateway** (mock + Canton) tervalidasi end-to-end.
+- ⏳ Berikutnya: FE (Lens UI) + deploy live (DevNet/Seaport).
 - Detail teknis: `2_TECH_SPEC.md`. Alur & layar: `3_USER_FLOW_WIREFRAME.md`.

@@ -5,7 +5,8 @@ export const NAV_LINKS = [
 ] as const;
 
 export const PERSONAS = [
-  "Lender",
+  "Lender A",
+  "Lender B",
   "Borrower",
   "Operator",
   "Auditor",
@@ -15,7 +16,8 @@ export const PERSONAS = [
 export type Persona = (typeof PERSONAS)[number];
 
 export const PERSONA_PARTY: Record<Persona, string | undefined> = {
-  Lender: "LenderA",
+  "Lender A": "LenderA",
+  "Lender B": "LenderB",
   Borrower: "Borrower",
   Operator: "Operator",
   Auditor: "Auditor",
@@ -27,11 +29,10 @@ export const HOME_TABS = ["Borrow", "Lend", "Lens", "Status"] as const;
 export type HomeTab = (typeof HOME_TABS)[number];
 
 export const PERSONA_TABS: Record<Persona, HomeTab[]> = {
-  Lender: ["Lend", "Lens", "Status"],
+  "Lender A": ["Lend", "Lens", "Status"],
+  "Lender B": ["Lend", "Lens", "Status"],
   Borrower: ["Borrow", "Lens", "Status"],
   Operator: ["Lens", "Status"],
   Auditor: ["Lens", "Status"],
   Outsider: ["Status", "Lens"],
 };
-
-export const WALLET_ADDRESS = "0xebFA...4179";

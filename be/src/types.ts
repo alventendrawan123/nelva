@@ -89,3 +89,10 @@ export interface PriceUpdate {
   price: number;
   asOf: string;
 }
+
+// A party's on-ledger holding (real wallet view — from Asset:Holding contracts).
+export interface HoldingView {
+  instrument: string;
+  amount: number;
+  locked: boolean;
+}

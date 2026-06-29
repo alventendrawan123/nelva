@@ -12,7 +12,7 @@ type PartyContextValue = {
 const PartyContext = createContext<PartyContextValue | null>(null);
 
 export function PartyProvider({ children }: { children: React.ReactNode }) {
-  const [persona, setPersona] = useState<Persona>("Lender");
+  const [persona, setPersona] = useState<Persona>("Lender A");
 
   const value = useMemo<PartyContextValue>(
     () => ({ persona, party: PERSONA_PARTY[persona], setPersona }),

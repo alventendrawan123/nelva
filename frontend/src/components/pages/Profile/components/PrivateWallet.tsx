@@ -1,35 +1,45 @@
 "use client";
 
-import { useState } from "react";
-import { Button } from "@/components/ui/Button";
+import { QueryState } from "@/components/shared/QueryState";
 import { Card } from "@/components/ui/Card";
-import { SUPPORTED_TOKENS } from "@/lib/mock/tokens";
+import { useHoldings } from "@/lib/api/hooks";
+import { formatAmount } from "@/lib/format";
 
 export function PrivateWallet() {
-  const [isRevealed, setIsRevealed] = useState(false);
+  const holdings = useHoldings();
+  const rows = holdings.data ?? [];
 
   return (
     <Card className="flex flex-col p-6">
       <h2 className="mb-6 text-lg font-bold text-foreground">Private Wallet</h2>
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 py-6">
-        {isRevealed ? (
-          <ul className="w-full space-y-2">
-            {SUPPORTED_TOKENS.map((token) => (
-              <li
-                key={token.symbol}
-                className="flex items-center justify-between rounded-2xl border border-border bg-surface-2 px-4 py-3 text-sm"
-              >
-                <span className="text-muted">{token.name}</span>
-                <span className="font-semibold text-foreground">
-                  0 {token.symbol}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <Button onClick={() => setIsRevealed(true)}>Fetch Balances</Button>
-        )}
-      </div>
+      <p className="-mt-4 mb-4 text-xs text-muted">
+        Your on-ledger holdings. Only you can see these — Canton scopes every
+        read to the requesting party.
+      </p>
+      <QueryState
+        isLoading={holdings.isLoading}
+        isError={holdings.isError}
+        isEmpty={rows.length === 0}
+        errorMessage="Could not load holdings."
+        emptyMessage="No holdings on the ledger yet."
+      >
+        <ul className="w-full space-y-2">
+          {rows.map((holding, index) => (
+            <li
+              key={`${holding.instrument}-${holding.locked}-${index}`}
+              className="flex items-center justify-between rounded-2xl border border-border bg-surface-2 px-4 py-3 text-sm"
+            >
+              <span className="text-muted">
+                {holding.instrument}
+                {holding.locked ? " · locked" : ""}
+              </span>
+              <span className="font-semibold text-foreground">
+                {formatAmount(holding.amount)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </QueryState>
     </Card>
   );
 }

@@ -20,6 +20,24 @@ export function useStatus() {
   return useQuery({ queryKey: keys.status, queryFn: api.status });
 }
 
+export function useMe() {
+  const { party } = useParty();
+  return useQuery({
+    queryKey: ["me", party],
+    queryFn: () => api.me(party ?? ""),
+    enabled: Boolean(party),
+  });
+}
+
+export function useHoldings() {
+  const { party } = useParty();
+  return useQuery({
+    queryKey: ["holdings", party],
+    queryFn: () => api.holdings(party ?? ""),
+    enabled: Boolean(party),
+  });
+}
+
 export function useMyBids() {
   const { party } = useParty();
   return useQuery({
@@ -73,6 +91,7 @@ function useInvalidateMarket() {
     queryClient.invalidateQueries({ queryKey: ["proposals"] });
     queryClient.invalidateQueries({ queryKey: ["loans"] });
     queryClient.invalidateQueries({ queryKey: ["lens"] });
+    queryClient.invalidateQueries({ queryKey: ["holdings"] });
   };
 }
 

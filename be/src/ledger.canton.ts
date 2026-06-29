@@ -6,7 +6,7 @@
 // that party's projected slice.
 import type { Ledger } from "./ledger.js";
 import { TIER_MULTIPLIER } from "./types.js";
-import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, Tier } from "./types.js";
+import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, Tier, HoldingView } from "./types.js";
 import { cheatMatch, type BidInput } from "./match.js";
 
 const BASE = process.env.JSON_LEDGER_API ?? "http://localhost:7575";
@@ -331,5 +331,19 @@ export class CantonLedger implements Ledger {
       this.acsAs(op, "Settlement:MatchProposal"),
     ]);
     return { openBids: bids.length, activeLoans: loans.length, proposals: props.length, lastMatchAt: props.length ? new Date().toISOString() : null };
+  }
+
+  // real wallet: the party's own Holding contracts on Canton
+  async holdings(viewer?: string): Promise<HoldingView[]> {
+    if (!viewer) return [];
+    const pid = await this.ensureParty(viewer);
+    const hs = await this.acsAs(pid, "Asset:Holding");
+    return hs
+      .filter((x) => x.arg.owner === pid)
+      .map((x) => ({ instrument: x.arg.instrument, amount: Number(x.arg.amount), locked: x.arg.locker != null }));
+  }
+  async partyId(name: string): Promise<string | null> {
+    if (!name) return null;
+    return this.ensureParty(name);
   }
 }

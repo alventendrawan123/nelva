@@ -106,6 +106,18 @@ export const lensViewSchema = z.object({
   }),
 });
 
+export const holdingSchema = z.object({
+  instrument: z.string(),
+  amount: z.number(),
+  locked: z.boolean(),
+});
+
+export const meSchema = z.object({
+  party: z.string().nullable().optional(),
+  role: z.string(),
+  partyId: z.string().nullable(),
+});
+
 export type Tier = z.infer<typeof tierSchema>;
 export type Bid = z.infer<typeof bidSchema>;
 export type BorrowIntent = z.infer<typeof borrowIntentSchema>;
@@ -115,3 +127,5 @@ export type Loan = z.infer<typeof loanSchema>;
 export type AuditBadge = z.infer<typeof auditBadgeSchema>;
 export type Status = z.infer<typeof statusSchema>;
 export type LensView = z.infer<typeof lensViewSchema>;
+export type Holding = z.infer<typeof holdingSchema>;
+export type Me = z.infer<typeof meSchema>;

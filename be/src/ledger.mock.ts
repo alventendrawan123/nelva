@@ -2,7 +2,7 @@
 // in the list* methods (mimicking Canton's per-party projection).
 import type { Ledger } from "./ledger.js";
 import { roleOf } from "./types.js";
-import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge } from "./types.js";
+import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, HoldingView } from "./types.js";
 import * as S from "./store.js";
 
 export class MockLedger implements Ledger {
@@ -54,4 +54,20 @@ export class MockLedger implements Ledger {
   async listBadges(): Promise<AuditBadge[]> { return S.db.badges; }
 
   async lens(proposalId: string) { return S.lens(proposalId); }
+
+  async holdings(viewer?: string): Promise<HoldingView[]> {
+    if (!viewer) return [];
+    const START = 1000;
+    const lockedBids = S.db.bids
+      .filter((b) => b.lender === viewer && (b.status === "OPEN" || b.status === "MATCHED"))
+      .reduce((a, b) => a + b.amount, 0);
+    const lockedColl = S.db.borrows
+      .filter((b) => b.borrower === viewer && (b.status === "OPEN" || b.status === "MATCHED"))
+      .reduce((a, b) => a + b.collateralAmount, 0);
+    const locked = lockedBids + lockedColl;
+    const out: HoldingView[] = [{ instrument: "USD", amount: Math.max(0, START - locked), locked: false }];
+    if (locked > 0) out.push({ instrument: "USD", amount: locked, locked: true });
+    return out;
+  }
+  async partyId(name: string): Promise<string | null> { return name || null; }
 }

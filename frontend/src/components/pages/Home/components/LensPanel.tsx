@@ -151,35 +151,43 @@ export function LensPanel() {
         className="mb-6 flex flex-wrap items-center gap-3 p-4"
         data-tour="lens-controls"
       >
-        <Button
-          onClick={handleRun}
-          disabled={runMatch.isPending}
-          data-tour="run-match"
-        >
-          <Play className="h-4 w-4" />
-          Run Match
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={handleCheat}
-          disabled={cheatMatch.isPending}
-          data-tour="cheat-match"
-        >
-          <AlertTriangle className="h-4 w-4" />
-          Cheat Match
-        </Button>
         {persona === "Operator" ? (
-          <Button
-            variant="ghost"
-            onClick={() =>
-              seed.mutate(undefined, { onSuccess: () => setSelected("") })
-            }
-            disabled={seed.isPending}
-          >
-            <RotateCcw className="h-4 w-4" />
-            Reset
-          </Button>
-        ) : null}
+          <>
+            <Button
+              onClick={handleRun}
+              disabled={runMatch.isPending}
+              data-tour="run-match"
+            >
+              <Play className="h-4 w-4" />
+              Run Match
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleCheat}
+              disabled={cheatMatch.isPending}
+              data-tour="cheat-match"
+            >
+              <AlertTriangle className="h-4 w-4" />
+              Cheat Match
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                seed.mutate(undefined, { onSuccess: () => setSelected("") })
+              }
+              disabled={seed.isPending}
+            >
+              <RotateCcw className="h-4 w-4" />
+              Reset
+            </Button>
+          </>
+        ) : (
+          <p className="text-sm text-muted">
+            Match controls are operator-only. Switch to the{" "}
+            <span className="font-semibold text-foreground">Operator</span>{" "}
+            persona to run or cheat a match.
+          </p>
+        )}
         {proposals.data && proposals.data.length > 0 ? (
           <select
             aria-label="Select proposal"
@@ -259,6 +267,7 @@ export function LensPanel() {
               <VerdictBanner
                 badge={badge}
                 isVerifying={verify.isPending}
+                canVerify={persona === "Auditor"}
                 onVerify={() => verify.mutate(activeId)}
               />
             </section>
@@ -272,10 +281,12 @@ export function LensPanel() {
 function VerdictBanner({
   badge,
   isVerifying,
+  canVerify,
   onVerify,
 }: {
   badge: LensView["perspectives"]["auditor"]["badge"];
   isVerifying: boolean;
+  canVerify: boolean;
   onVerify: () => void;
 }) {
   const isGreen = badge?.verdict === "GREEN";
@@ -332,15 +343,21 @@ function VerdictBanner({
           </p>
         </div>
       </div>
-      <Button
-        onClick={onVerify}
-        disabled={isVerifying}
-        className="shrink-0"
-        data-tour="verify-btn"
-      >
-        <ShieldCheck className="h-4 w-4" />
-        {isVerifying ? "Verifying..." : "Auditor Verify"}
-      </Button>
+      {canVerify ? (
+        <Button
+          onClick={onVerify}
+          disabled={isVerifying}
+          className="shrink-0"
+          data-tour="verify-btn"
+        >
+          <ShieldCheck className="h-4 w-4" />
+          {isVerifying ? "Verifying..." : "Auditor Verify"}
+        </Button>
+      ) : (
+        <p className="shrink-0 text-xs text-muted">
+          Switch to the Auditor persona to verify.
+        </p>
+      )}
     </Card>
   );
 }

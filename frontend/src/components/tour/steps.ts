@@ -35,7 +35,7 @@ export const TOUR_STEPS: TourStep[] = [
     body: "As a Lender you offer funds at a secret rate. Here are the open sealed bids - rivals cannot see each other's rates. Press Next.",
     placement: "top",
     onEnter: (actions) => {
-      actions.setPersona("Lender");
+      actions.setPersona("Lender A");
       actions.setActiveHomeTab("Lend");
     },
   },
