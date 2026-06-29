@@ -51,7 +51,7 @@ export function BorrowPanel() {
         title="Borrow with privacy"
         description="Submit a private borrow intent. Your max rate stays sealed and is only revealed inside Canton's deterministic matching engine."
       />
-      <Card className="space-y-4 p-6">
+      <Card className="space-y-4 p-6" data-tour="borrow-form">
         <AmountField
           id="borrow-amount"
           label="You're borrowing"
@@ -129,6 +129,7 @@ export function BorrowPanel() {
                   <Button
                     onClick={() => accept.mutate(proposal.proposalId)}
                     disabled={accept.isPending}
+                    data-tour="accept-btn"
                   >
                     Accept
                   </Button>
@@ -146,7 +147,7 @@ export function BorrowPanel() {
         </QueryState>
       </section>
 
-      <section className="mt-8">
+      <section className="mt-8" data-tour="loans-list">
         <h2 className="mb-3 text-lg font-bold text-foreground">Your loans</h2>
         <QueryState
           isLoading={loans.isLoading}

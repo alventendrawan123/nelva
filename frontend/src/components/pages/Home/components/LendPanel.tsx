@@ -69,7 +69,7 @@ export function LendPanel() {
         </Button>
       </Card>
 
-      <section className="mt-8">
+      <section className="mt-8" data-tour="lend-bids">
         <h2 className="mb-3 text-lg font-bold text-foreground">
           My sealed bids
         </h2>

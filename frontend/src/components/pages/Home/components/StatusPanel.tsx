@@ -23,7 +23,7 @@ export function StatusPanel() {
         isError={status.isError}
         errorMessage="Could not load market status."
       >
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-4" data-tour="status-stats">
           <StatTile label="Open Bids" value={status.data?.openBids ?? 0} />
           <StatTile
             label="Active Loans"
