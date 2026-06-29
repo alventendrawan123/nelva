@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge } from "@/components/ui/Badge";
+import { TxRow } from "@/components/shared/TxRow";
 import { Card } from "@/components/ui/Card";
 import { useProfile } from "@/lib/api/hooks";
 import { formatAmount, formatRate } from "@/lib/format";
@@ -15,20 +15,15 @@ export function PositionsList() {
       {active.length > 0 ? (
         <ul className="space-y-3">
           {active.map((loan) => (
-            <li
-              key={loan.loanId}
-              className="flex items-center justify-between rounded-2xl border border-border bg-surface-2 p-4"
-            >
-              <div>
-                <p className="font-semibold text-foreground">
-                  {formatAmount(loan.principal)} at{" "}
-                  {formatRate(loan.blendedRate)}
-                </p>
-                <p className="text-sm text-muted">
-                  Collateral {formatAmount(loan.collateralAmount)}
-                </p>
-              </div>
-              <Badge tone="accent">{loan.status}</Badge>
+            <li key={loan.loanId}>
+              <TxRow
+                symbol="nUSD"
+                title={`${formatAmount(loan.principal)} at ${formatRate(loan.blendedRate)}`}
+                subtitle={`Collateral ${formatAmount(loan.collateralAmount)}`}
+                idLabel={loan.loanId}
+                status={loan.status}
+                statusTone="accent"
+              />
             </li>
           ))}
         </ul>

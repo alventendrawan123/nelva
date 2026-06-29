@@ -1,8 +1,7 @@
 "use client";
 
 import { QueryState } from "@/components/shared/QueryState";
-import { Badge } from "@/components/ui/Badge";
-import { Card } from "@/components/ui/Card";
+import { TxRow } from "@/components/shared/TxRow";
 import { StatTile } from "@/components/ui/StatTile";
 import { useLoans, useStatus } from "@/lib/api/hooks";
 import { formatAmount, formatRate } from "@/lib/format";
@@ -47,21 +46,16 @@ export function StatusPanel() {
         >
           <ul className="space-y-3">
             {loans.data?.map((loan) => (
-              <Card
-                key={loan.loanId}
-                className="flex items-center justify-between p-5"
-              >
-                <div>
-                  <p className="font-semibold text-foreground">
-                    {formatAmount(loan.principal)} at{" "}
-                    {formatRate(loan.blendedRate)}
-                  </p>
-                  <p className="text-sm text-muted">Loan - {loan.borrower}</p>
-                </div>
-                <Badge tone={loan.status === "ACTIVE" ? "accent" : "success"}>
-                  {loan.status}
-                </Badge>
-              </Card>
+              <li key={loan.loanId}>
+                <TxRow
+                  symbol="nUSD"
+                  title={`${formatAmount(loan.principal)} at ${formatRate(loan.blendedRate)}`}
+                  subtitle={`Loan - ${loan.borrower}`}
+                  idLabel={loan.loanId}
+                  status={loan.status}
+                  statusTone={loan.status === "ACTIVE" ? "accent" : "success"}
+                />
+              </li>
             ))}
           </ul>
         </QueryState>
