@@ -8,8 +8,25 @@ import { ledger, LEDGER_MODE } from "./ledger.js";
 
 const PORT = Number(process.env.PORT ?? 8090); // 8080 often taken (Apache/XAMPP)
 const app = express();
-app.use(cors());
+app.set("trust proxy", 1); // behind Railway/Vercel proxy — resolve real client IP
+// CORS: lock to the FE origin(s) in prod via FE_ORIGIN (comma-separated). Unset = allow-all (local dev).
+const FE_ORIGIN = process.env.FE_ORIGIN;
+app.use(cors(FE_ORIGIN ? { origin: FE_ORIGIN.split(",").map((s) => s.trim()) } : {}));
 app.use(express.json());
+
+// Dependency-free in-memory rate limit — blunts API abuse on a public URL.
+const RL_WINDOW = 60_000, RL_MAX = 240;
+const rlHits = new Map<string, { n: number; t: number }>();
+app.use((req, res, next) => {
+  const now = Date.now();
+  const ip = req.ip ?? "?";
+  const e = rlHits.get(ip);
+  if (!e || now - e.t > RL_WINDOW) rlHits.set(ip, { n: 1, t: now });
+  else if (e.n >= RL_MAX) return res.status(429).json({ error: "rate limit exceeded" });
+  else e.n++;
+  if (rlHits.size > 5000) for (const [k, v] of rlHits) if (now - v.t > RL_WINDOW) rlHits.delete(k);
+  next();
+});
 
 function who(req: Request): { party?: string; role: ReturnType<typeof roleOf> } {
   const auth = req.header("authorization") ?? "";

@@ -4,3 +4,11 @@
 
 # Generated/large files shouldn't skew language stats.
 be/package-lock.json linguist-generated=true
+
+# Shell scripts MUST stay LF or the shebang breaks in the Linux container.
+*.sh text eol=lf
+be/entrypoint.sh text eol=lf
+be/Dockerfile text eol=lf
+
+# Compiled DAR is binary — never apply line-ending/text conversion.
+*.dar binary
