@@ -18,9 +18,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // hydrate from localStorage on the client (avoids SSR mismatch)
+  // hydrate from localStorage on the client (only if a session is active — a
+  // disconnected wallet stays disconnected across reloads)
   useEffect(() => {
-    setPartyId(wallet.party());
+    setPartyId(wallet.isSessionActive() ? wallet.party() : null);
   }, []);
 
   const connect = useCallback(async (hint = "User") => {
@@ -36,7 +37,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const disconnect = useCallback(() => {
-    wallet.disconnect();
+    wallet.endSession();
     setPartyId(null);
   }, []);
 

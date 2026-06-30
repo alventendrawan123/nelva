@@ -8,6 +8,7 @@ import * as ed from "@noble/ed25519";
 const PRIV_KEY = "nelva.wallet.priv"; // hex of the 32-byte Ed25519 secret
 const PARTY_KEY = "nelva.wallet.party";
 const FP_KEY = "nelva.wallet.fp";
+const SESSION_KEY = "nelva.wallet.session"; // "1" while connected (separate from the wallet itself)
 
 // DER X.509 SubjectPublicKeyInfo prefix for an Ed25519 public key.
 const ED25519_SPKI = new Uint8Array([
@@ -58,21 +59,27 @@ export async function signHashB64(hashB64: string): Promise<string> {
 }
 
 export const wallet = {
-  isConnected: () => Boolean(localStorage.getItem(PARTY_KEY)),
+  // the wallet exists once onboarded (key + party persist across disconnect)
+  hasWallet: () => Boolean(localStorage.getItem(PARTY_KEY)),
   party: () => localStorage.getItem(PARTY_KEY),
   fingerprint: () => localStorage.getItem(FP_KEY),
+  isSessionActive: () => localStorage.getItem(SESSION_KEY) === "1",
+  // onboarded (or re-attached): record the party + open a session
   setSession: (party: string, fp: string) => {
     localStorage.setItem(PARTY_KEY, party);
     localStorage.setItem(FP_KEY, fp);
+    localStorage.setItem(SESSION_KEY, "1");
   },
-  disconnect: () => {
-    localStorage.removeItem(PARTY_KEY);
-    localStorage.removeItem(FP_KEY);
+  // disconnect = end the session but KEEP the wallet, so reconnecting re-attaches
+  // to the SAME party (re-onboarding the same key would fail: party already exists)
+  endSession: () => {
+    localStorage.removeItem(SESSION_KEY);
   },
   // wipe the key too (full reset / "create a new wallet")
   reset: () => {
     localStorage.removeItem(PRIV_KEY);
     localStorage.removeItem(PARTY_KEY);
     localStorage.removeItem(FP_KEY);
+    localStorage.removeItem(SESSION_KEY);
   },
 };

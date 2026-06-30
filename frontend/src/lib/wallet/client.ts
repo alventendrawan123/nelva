@@ -35,8 +35,13 @@ type PrepareResponse = {
 
 /** Onboard the browser key as a real external Canton party. Returns the party id. Idempotent. */
 export async function connectWallet(partyHint: string): Promise<string> {
+  // already onboarded -> re-attach to the SAME party (don't re-onboard the key)
   const existing = wallet.party();
-  if (existing) return existing;
+  if (existing) {
+    const fp = wallet.fingerprint();
+    if (fp) wallet.setSession(existing, fp);
+    return existing;
+  }
 
   const publicKey = await publicKeyDerB64();
   const onb = await call<OnboardResponse>("/wallet/onboard", { partyHint, publicKey });
