@@ -3,7 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFeedback } from "@/context/FeedbackContext";
 import { useParty } from "@/context/PartyContext";
+import { useWallet } from "@/context/WalletContext";
 import { api } from "@/lib/api/endpoints";
+import { borrowAsWallet, placeBidAsWallet } from "@/lib/wallet/commands";
 
 const keys = {
   status: ["status"] as const,
@@ -109,27 +111,31 @@ function useMarketCallbacks(successMessage: string) {
 
 export function usePlaceBid() {
   const { party } = useParty();
+  const { partyId } = useWallet();
   return useMutation({
-    mutationFn: ({ amount, rate }: { amount: number; rate: number }) =>
-      api.placeBid(party ?? "", amount, rate),
+    // a connected wallet signs the bid itself; otherwise the demo persona path
+    mutationFn: ({ amount, rate }: { amount: number; rate: number }): Promise<void> =>
+      partyId
+        ? placeBidAsWallet(amount, rate)
+        : api.placeBid(party ?? "", amount, rate).then(() => undefined),
     ...useMarketCallbacks("Sealed bid submitted."),
   });
 }
 
 export function useBorrow() {
   const { party } = useParty();
+  const { partyId } = useWallet();
   return useMutation({
     mutationFn: (input: {
       amount: number;
       maxRate: number;
       collateralAmount: number;
-    }) =>
-      api.borrow(
-        party ?? "",
-        input.amount,
-        input.maxRate,
-        input.collateralAmount,
-      ),
+    }): Promise<void> =>
+      partyId
+        ? borrowAsWallet(input.amount, input.maxRate, input.collateralAmount)
+        : api
+            .borrow(party ?? "", input.amount, input.maxRate, input.collateralAmount)
+            .then(() => undefined),
     ...useMarketCallbacks("Borrow intent submitted."),
   });
 }

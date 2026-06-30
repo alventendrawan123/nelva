@@ -95,3 +95,56 @@ export async function placeBidAsWallet(amount: number, rate: number): Promise<vo
     },
   ]);
 }
+
+/** Submit a real borrow intent: split + lock collateral, then create a BorrowIntent — all wallet-signed. */
+export async function borrowAsWallet(
+  amount: number,
+  maxRate: number,
+  collateralAmount: number,
+): Promise<void> {
+  const party = wallet.party();
+  if (!party) throw new Error("Wallet not connected.");
+  const { packageId, parties } = await getConfig();
+  const holdingTid = `${packageId}:Nelva.Asset:Holding`;
+  const borrowTid = `${packageId}:Nelva.Lending:BorrowIntent`;
+
+  let holdings = await walletHoldings();
+  const source = holdings.find((h) => !h.locked && h.amount >= collateralAmount);
+  if (!source) throw new Error("Not enough collateral available.");
+
+  let collateralCid = source.cid;
+  if (source.amount > collateralAmount) {
+    const before = new Set(holdings.map((h) => h.cid));
+    await submitAsWallet([
+      { ExerciseCommand: { templateId: holdingTid, contractId: source.cid, choice: "Split", choiceArgument: { splitAmount: String(collateralAmount) } } },
+    ]);
+    const piece = await holdingsUntil((hs) => hs.find((h) => !before.has(h.cid) && !h.locked && near(h.amount, collateralAmount)));
+    collateralCid = piece.cid;
+  }
+
+  const beforeLock = new Set((await walletHoldings()).map((h) => h.cid));
+  await submitAsWallet([
+    { ExerciseCommand: { templateId: holdingTid, contractId: collateralCid, choice: "Lock", choiceArgument: { newLocker: parties.operator } } },
+  ]);
+  const locked = await holdingsUntil((hs) => hs.find((h) => h.locked && !beforeLock.has(h.cid) && near(h.amount, collateralAmount)));
+
+  await submitAsWallet([
+    {
+      CreateCommand: {
+        templateId: borrowTid,
+        createArguments: {
+          borrower: party,
+          matchingOperator: parties.operator,
+          auditor: parties.auditor,
+          borrowId: `borrow-${Date.now()}`,
+          collateralCid: locked.cid,
+          amount: String(amount),
+          maxRate: String(maxRate),
+          tier: "Bronze",
+          instrument: "USD",
+          deadline: DEADLINE,
+        },
+      },
+    },
+  ]);
+}
