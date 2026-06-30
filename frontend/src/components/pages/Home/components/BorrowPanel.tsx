@@ -87,7 +87,7 @@ export function BorrowPanel() {
             suffix="d"
           />
         </div>
-        <SealedHint message="Your max rate is encrypted and hidden from the server." />
+        <SealedHint message="Your max rate is sealed — only the matching engine sees it, never rival borrowers. Canton privacy, not encryption." />
         {borrow.isError ? (
           <p className="text-sm text-danger">{borrow.error.message}</p>
         ) : null}

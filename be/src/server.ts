@@ -88,6 +88,7 @@ app.post("/api/wallet/prepare", h(async (req, res) => {
 }));
 app.get("/api/wallet/accept-info", h(async (req, res) => res.json(await ledger.walletAcceptInfo(String(req.query.proposalId ?? "")))));
 app.get("/api/wallet/repay-info", h(async (req, res) => res.json(await ledger.walletRepayInfo(String(req.query.party ?? ""), String(req.query.loanId ?? "")))));
+app.post("/api/faucet", h(async (req, res) => res.json(await ledger.walletFaucet(String(req.body?.party ?? "")))));
 app.post("/api/wallet/execute", h(async (req, res) => {
   const { party, preparedTransaction, hashingSchemeVersion, fingerprint, signature } = req.body ?? {};
   if (!party || !preparedTransaction || !hashingSchemeVersion || !fingerprint || !signature) throw new Error("party + preparedTransaction + hashingSchemeVersion + fingerprint + signature required");

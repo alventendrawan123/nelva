@@ -476,6 +476,15 @@ export class CantonLedger implements Ledger {
       .filter(Boolean);
     return { loanId, owed, creditScoreCid, disclosed };
   }
+  // Fund a fresh wallet party (e.g. a Canton-gateway party with no faucet of its
+  // own) with 200 nUSD, once — idempotent so it can't be drained by re-calling.
+  async walletFaucet(party: string) {
+    if (!party) throw new Error("party required");
+    const pid = await this.ensureParty(party);
+    const has = (await this.acsAs(pid, "Asset:Holding")).some((x) => x.arg.owner === pid);
+    if (!has) await this.fundPid(pid, 200);
+    return { party: pid, funded: !has };
+  }
   // step 4: FE returns the signature over the prepared hash -> we submit. The key never left the browser.
   async walletExecute(party: string, preparedTransaction: string, hashingSchemeVersion: string, fingerprint: string, sig: string) {
     return post("/v2/interactive-submission/execute", {

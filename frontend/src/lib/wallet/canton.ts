@@ -10,32 +10,29 @@
 //                       node — the gateway is the node.
 //   - ExtensionAdapter -> a CIP-0103 browser-extension wallet the user installed.
 //
-// Gated by CANTON_GATEWAY_URL: unset (sandbox demo) -> module stays dormant and
-// the app uses the embedded wallet only.
-import {
-  init,
-  connect,
-  disconnect,
-  listAccounts,
-  prepareExecuteAndWait,
-  status,
-  RemoteAdapter,
-  ExtensionAdapter,
-} from "@canton-network/dapp-sdk";
+// The SDK pulls in Lit web components that touch `HTMLElement` at module-eval
+// time, which crashes server-side rendering. So it is loaded lazily (dynamic
+// import), in the browser only, the first time a wallet action runs. Importing
+// THIS module stays SSR-safe — only types are imported statically.
 import type { ProviderAdapter, Wallet } from "@canton-network/dapp-sdk";
 import { CANTON_GATEWAY_URL } from "@/config/env";
 
 /** Is a real Canton wallet path available in this deployment? */
 export const cantonWalletEnabled = (): boolean => Boolean(CANTON_GATEWAY_URL);
 
+type Sdk = typeof import("@canton-network/dapp-sdk");
+let sdkPromise: Promise<Sdk> | null = null;
+const loadSdk = (): Promise<Sdk> => (sdkPromise ??= import("@canton-network/dapp-sdk"));
+
 let initialized = false;
 
-async function ensureInit(): Promise<void> {
-  if (initialized) return;
+async function ensureInit(): Promise<Sdk> {
+  const sdk = await loadSdk();
+  if (initialized) return sdk;
   const adapters: ProviderAdapter[] = [];
   if (CANTON_GATEWAY_URL) {
     adapters.push(
-      new RemoteAdapter({
+      new sdk.RemoteAdapter({
         providerId: "nelva-gateway",
         rpcUrl: CANTON_GATEWAY_URL,
         name: "Canton Wallet",
@@ -44,12 +41,16 @@ async function ensureInit(): Promise<void> {
     );
   }
   // a CIP-0103 browser extension (e.g. Reference Wallet) shows up too if installed
-  adapters.push(new ExtensionAdapter({ name: "Canton Wallet Extension" }));
-  await init({ defaultAdapters: adapters, enableSuggestedWallets: true });
+  adapters.push(new sdk.ExtensionAdapter({ name: "Canton Wallet Extension" }));
+  await sdk.init({ defaultAdapters: adapters, enableSuggestedWallets: true });
   initialized = true;
+  return sdk;
 }
 
-function primaryParty(wallets: Wallet[]): string {
+// some CIP-0103 wallets return a single Wallet instead of an array (the dapp-sdk
+// `ping` example ships a normalizeWalletList for this) — accept both shapes.
+function primaryParty(result: Wallet[] | Wallet): string {
+  const wallets = Array.isArray(result) ? result : [result];
   const primary = wallets.find((w) => w.primary) ?? wallets[0];
   if (!primary?.partyId) throw new Error("Wallet returned no Canton account.");
   return primary.partyId;
@@ -57,26 +58,27 @@ function primaryParty(wallets: Wallet[]): string {
 
 /** Open the wallet picker, connect, and return the primary party id. */
 export async function connectCantonWallet(): Promise<string> {
-  await ensureInit();
-  await connect(); // opens the Discovery picker (RemoteAdapter / extension / WC)
-  return primaryParty(await listAccounts());
+  const sdk = await ensureInit();
+  await sdk.connect(); // opens the Discovery picker (RemoteAdapter / extension / WC)
+  return primaryParty(await sdk.listAccounts());
 }
 
 /** Re-attach to a persisted wallet session on mount (no picker). null if none. */
 export async function restoreCantonWallet(): Promise<string | null> {
-  await ensureInit();
-  const current = await status();
+  const sdk = await ensureInit();
+  const current = await sdk.status();
   if (!current.connection?.isConnected) return null;
   try {
-    return primaryParty(await listAccounts());
+    return primaryParty(await sdk.listAccounts());
   } catch {
     return null;
   }
 }
 
 export async function disconnectCantonWallet(): Promise<void> {
+  const sdk = await loadSdk();
   try {
-    await disconnect();
+    await sdk.disconnect();
   } catch {
     /* already disconnected */
   }
@@ -92,7 +94,9 @@ export async function submitViaCantonWallet(
   commands: unknown[],
   disclosedContracts: unknown[] = [],
 ): Promise<void> {
-  await prepareExecuteAndWait({
+  const sdk = await loadSdk();
+  await sdk.prepareExecuteAndWait({
+    commandId: crypto.randomUUID(), // idempotency / tracking per submission
     commands: commands as never,
     disclosedContracts: disclosedContracts as never,
   });

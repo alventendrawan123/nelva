@@ -60,7 +60,7 @@ export function LendPanel() {
             suffix="d"
           />
         </div>
-        <SealedHint message="Your rate is encrypted and hidden from rival lenders." />
+        <SealedHint message="Your bid rate is sealed — only the matching engine sees it, never rival lenders. Canton privacy, not encryption." />
         {placeBid.isError ? (
           <p className="text-sm text-danger">{placeBid.error?.message}</p>
         ) : null}

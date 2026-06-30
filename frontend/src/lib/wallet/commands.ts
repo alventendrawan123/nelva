@@ -2,7 +2,9 @@
 // Each step is a wallet-signed transaction over the BE relay; the embedded
 // wallet signs silently, so a single user click runs the whole chain.
 import { API_BASE_URL } from "@/config/env";
-import { submitAsWallet, wallet } from "./client";
+import { submitViaCantonWallet } from "./canton";
+import { submitAsWallet } from "./client";
+import { activeParty, getWalletKind } from "./walletMode";
 
 type Config = {
   packageId: string;
@@ -20,8 +22,17 @@ async function getConfig(): Promise<Config> {
   return cachedConfig;
 }
 
+// route a wallet-signed submission to the active transport: the hosted CIP-0103
+// gateway (canton) or the embedded-key BE relay (embedded). Command construction
+// is identical — only the transport differs.
+function submit(commands: unknown[], disclosed: unknown[] = []): Promise<void> {
+  return getWalletKind() === "canton"
+    ? submitViaCantonWallet(commands, disclosed)
+    : submitAsWallet(commands, disclosed);
+}
+
 async function walletHoldings(): Promise<Holding[]> {
-  const party = wallet.party();
+  const party = activeParty();
   if (!party) return [];
   const res = await fetch(`${API_BASE_URL}/wallet/holdings`, {
     headers: { Authorization: `Bearer ${party}` },
@@ -47,7 +58,7 @@ async function holdingsUntil(
 
 /** Place a real sealed bid: split (if needed) -> lock -> create SealedBid, all wallet-signed. */
 export async function placeBidAsWallet(amount: number, rate: number): Promise<void> {
-  const party = wallet.party();
+  const party = activeParty();
   if (!party) throw new Error("Wallet not connected.");
   const { packageId, parties } = await getConfig();
   const holdingTid = `${packageId}:Nelva.Asset:Holding`;
@@ -61,7 +72,7 @@ export async function placeBidAsWallet(amount: number, rate: number): Promise<vo
   let bidCid = source.cid;
   if (source.amount > amount) {
     const before = new Set(holdings.map((h) => h.cid));
-    await submitAsWallet([
+    await submit([
       { ExerciseCommand: { templateId: holdingTid, contractId: source.cid, choice: "Split", choiceArgument: { splitAmount: String(amount) } } },
     ]);
     const piece = await holdingsUntil((hs) => hs.find((h) => !before.has(h.cid) && !h.locked && near(h.amount, amount)));
@@ -70,13 +81,13 @@ export async function placeBidAsWallet(amount: number, rate: number): Promise<vo
 
   // 2. lock the bid amount to the operator (pre-authorization for matching)
   const beforeLock = new Set((await walletHoldings()).map((h) => h.cid));
-  await submitAsWallet([
+  await submit([
     { ExerciseCommand: { templateId: holdingTid, contractId: bidCid, choice: "Lock", choiceArgument: { newLocker: parties.operator } } },
   ]);
   const locked = await holdingsUntil((hs) => hs.find((h) => h.locked && !beforeLock.has(h.cid) && near(h.amount, amount)));
 
   // 3. create the sealed bid
-  await submitAsWallet([
+  await submit([
     {
       CreateCommand: {
         templateId: bidTid,
@@ -102,7 +113,7 @@ export async function borrowAsWallet(
   maxRate: number,
   collateralAmount: number,
 ): Promise<void> {
-  const party = wallet.party();
+  const party = activeParty();
   if (!party) throw new Error("Wallet not connected.");
   const { packageId, parties } = await getConfig();
   const holdingTid = `${packageId}:Nelva.Asset:Holding`;
@@ -115,7 +126,7 @@ export async function borrowAsWallet(
   let collateralCid = source.cid;
   if (source.amount > collateralAmount) {
     const before = new Set(holdings.map((h) => h.cid));
-    await submitAsWallet([
+    await submit([
       { ExerciseCommand: { templateId: holdingTid, contractId: source.cid, choice: "Split", choiceArgument: { splitAmount: String(collateralAmount) } } },
     ]);
     const piece = await holdingsUntil((hs) => hs.find((h) => !before.has(h.cid) && !h.locked && near(h.amount, collateralAmount)));
@@ -123,12 +134,12 @@ export async function borrowAsWallet(
   }
 
   const beforeLock = new Set((await walletHoldings()).map((h) => h.cid));
-  await submitAsWallet([
+  await submit([
     { ExerciseCommand: { templateId: holdingTid, contractId: collateralCid, choice: "Lock", choiceArgument: { newLocker: parties.operator } } },
   ]);
   const locked = await holdingsUntil((hs) => hs.find((h) => h.locked && !beforeLock.has(h.cid) && near(h.amount, collateralAmount)));
 
-  await submitAsWallet([
+  await submit([
     {
       CreateCommand: {
         templateId: borrowTid,
@@ -157,7 +168,7 @@ export async function acceptAsWallet(proposalCid: string): Promise<void> {
   const info = await fetch(
     `${API_BASE_URL}/wallet/accept-info?proposalId=${encodeURIComponent(proposalCid)}`,
   ).then((r) => r.json());
-  await submitAsWallet(
+  await submit(
     [
       {
         ExerciseCommand: {
@@ -177,7 +188,7 @@ export async function acceptAsWallet(proposalCid: string): Promise<void> {
  *  holding (> owed), not minted funds; the BE supplies the operator-signed
  *  CreditScore (BumpUp target) as a disclosed contract. */
 export async function repayAsWallet(loanId: string): Promise<void> {
-  const party = wallet.party();
+  const party = activeParty();
   if (!party) throw new Error("Wallet not connected.");
   const { packageId } = await getConfig();
   const info = await fetch(
@@ -195,7 +206,7 @@ export async function repayAsWallet(loanId: string): Promise<void> {
     );
   }
 
-  await submitAsWallet(
+  await submit(
     [
       {
         ExerciseCommand: {
@@ -216,7 +227,7 @@ export async function repayAsWallet(loanId: string): Promise<void> {
  *  contracts are needed. */
 export async function rejectAsWallet(proposalCid: string): Promise<void> {
   const { packageId } = await getConfig();
-  await submitAsWallet([
+  await submit([
     {
       ExerciseCommand: {
         templateId: `${packageId}:Nelva.Settlement:MatchProposal`,

@@ -10,7 +10,8 @@ function shortId(id: string): string {
 }
 
 export function ConnectWallet() {
-  const { partyId, connecting, error, connect, disconnect } = useWallet();
+  const { partyId, connecting, error, cantonEnabled, connect, connectCanton, disconnect } =
+    useWallet();
   const [available, setAvailable] = useState<number | null>(null);
 
   useEffect(() => {
@@ -32,6 +33,32 @@ export function ConnectWallet() {
   }, [partyId]);
 
   if (!partyId) {
+    // when a hosted Canton gateway is configured, offer the real CIP-0103 wallet
+    // plus the instant in-browser demo wallet; otherwise just the demo wallet.
+    if (cantonEnabled) {
+      return (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => connectCanton()}
+            disabled={connecting}
+            className="rounded-full bg-wallet px-4 py-2 text-sm font-semibold text-wallet-foreground disabled:opacity-60"
+            title={error ?? "Connect your Canton wallet"}
+          >
+            {connecting ? "Connecting…" : "Connect Canton Wallet"}
+          </button>
+          <button
+            type="button"
+            onClick={() => connect()}
+            disabled={connecting}
+            className="rounded-full border border-border px-3 py-2 text-sm font-semibold text-muted hover:text-foreground disabled:opacity-60"
+            title="Instant in-browser demo wallet — no setup"
+          >
+            Quick wallet
+          </button>
+        </div>
+      );
+    }
     return (
       <button
         type="button"

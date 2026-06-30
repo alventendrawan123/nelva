@@ -1,13 +1,28 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { API_BASE_URL } from "@/config/env";
+import {
+  cantonWalletEnabled,
+  connectCantonWallet,
+  disconnectCantonWallet,
+  restoreCantonWallet,
+} from "@/lib/wallet/canton";
 import { connectWallet, wallet } from "@/lib/wallet/client";
+import {
+  clearActiveWallet,
+  getWalletKind,
+  setCantonActive,
+  setEmbeddedActive,
+} from "@/lib/wallet/walletMode";
 
 type WalletValue = {
   partyId: string | null;
   connecting: boolean;
   error: string | null;
+  cantonEnabled: boolean;
   connect: (hint?: string) => Promise<void>;
+  connectCanton: () => Promise<void>;
   disconnect: () => void;
 };
 
@@ -18,17 +33,30 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // hydrate from localStorage on the client (only if a session is active — a
-  // disconnected wallet stays disconnected across reloads)
+  // hydrate from the persisted choice. Embedded re-attaches a localStorage key;
+  // Canton re-attaches a gateway session (no picker). Disconnected stays so.
   useEffect(() => {
-    setPartyId(wallet.isSessionActive() ? wallet.party() : null);
+    if (getWalletKind() === "canton") {
+      restoreCantonWallet()
+        .then((p) => {
+          if (p) {
+            setCantonActive(p);
+            setPartyId(p);
+          }
+        })
+        .catch(() => {});
+    } else {
+      setPartyId(wallet.isSessionActive() ? wallet.party() : null);
+    }
   }, []);
 
   const connect = useCallback(async (hint = "User") => {
     setConnecting(true);
     setError(null);
     try {
-      setPartyId(await connectWallet(hint));
+      const p = await connectWallet(hint);
+      setEmbeddedActive();
+      setPartyId(p);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not connect wallet.");
     } finally {
@@ -36,13 +64,48 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const connectCanton = useCallback(async () => {
+    setConnecting(true);
+    setError(null);
+    try {
+      const p = await connectCantonWallet();
+      setCantonActive(p);
+      // a fresh gateway party has no funds — top it up once so it can transact
+      await fetch(`${API_BASE_URL}/faucet`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ party: p }),
+      }).catch(() => {});
+      setPartyId(p);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not connect Canton wallet.");
+    } finally {
+      setConnecting(false);
+    }
+  }, []);
+
   const disconnect = useCallback(() => {
-    wallet.endSession();
+    if (getWalletKind() === "canton") {
+      void disconnectCantonWallet();
+    } else {
+      wallet.endSession();
+    }
+    clearActiveWallet();
     setPartyId(null);
   }, []);
 
   return (
-    <WalletCtx.Provider value={{ partyId, connecting, error, connect, disconnect }}>
+    <WalletCtx.Provider
+      value={{
+        partyId,
+        connecting,
+        error,
+        cantonEnabled: cantonWalletEnabled(),
+        connect,
+        connectCanton,
+        disconnect,
+      }}
+    >
       {children}
     </WalletCtx.Provider>
   );
