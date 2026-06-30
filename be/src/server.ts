@@ -149,5 +149,13 @@ app.get("/api/status", h(async (_req, res) => res.json(await ledger.status())));
 app.get("/api/health", (_req, res) => res.json({ ok: true, mode: LEDGER_MODE }));
 
 ledger.seed()
-  .then(() => app.listen(PORT, () => console.log(`Nelva BE (${LEDGER_MODE}) on http://localhost:${PORT}  — seeded. GET /api/status`)))
+  .then(() => {
+    app.listen(PORT, () => console.log(`Nelva BE (${LEDGER_MODE}) on http://localhost:${PORT}  — seeded. GET /api/status`));
+    // Auto-matching engine: periodically run the operator match so wallet users'
+    // bids/borrows settle on their own (like a scheduled matcher). runMatch throws
+    // when there's nothing to pair — ignore. Canton mode only.
+    if (LEDGER_MODE === "canton") {
+      setInterval(() => { ledger.runMatch().catch(() => {}); }, 20000);
+    }
+  })
   .catch((e) => { console.error("seed failed:", e); process.exit(1); });
