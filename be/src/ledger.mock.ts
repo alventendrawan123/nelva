@@ -70,4 +70,10 @@ export class MockLedger implements Ledger {
     return out;
   }
   async partyId(name: string): Promise<string | null> { return name || null; }
+
+  private noWallet(): never { throw new Error("connect-wallet (external signing) requires LEDGER_MODE=canton"); }
+  async walletOnboard(): Promise<any> { this.noWallet(); }
+  async walletAllocate(): Promise<any> { this.noWallet(); }
+  async walletPrepare(): Promise<any> { this.noWallet(); }
+  async walletExecute(): Promise<any> { this.noWallet(); }
 }

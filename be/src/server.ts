@@ -70,6 +70,28 @@ app.get("/api/me", h(async (req, res) => {
 }));
 app.get("/api/holdings", h(async (req, res) => res.json(await ledger.holdings(who(req).party))));
 
+// ── wallet: external-party signing relay (the user's key stays in their browser) ──
+app.post("/api/wallet/onboard", h(async (req, res) => {
+  const { partyHint, publicKey } = req.body ?? {};
+  if (!partyHint || !publicKey) throw new Error("partyHint + publicKey required");
+  res.json(await ledger.walletOnboard(String(partyHint), String(publicKey)));
+}));
+app.post("/api/wallet/allocate", h(async (req, res) => {
+  const { topologyTransactions, fingerprint, multiHashSignature } = req.body ?? {};
+  if (!Array.isArray(topologyTransactions) || !fingerprint || !multiHashSignature) throw new Error("topologyTransactions + fingerprint + multiHashSignature required");
+  res.json(await ledger.walletAllocate(topologyTransactions, String(fingerprint), String(multiHashSignature)));
+}));
+app.post("/api/wallet/prepare", h(async (req, res) => {
+  const { party, commands } = req.body ?? {};
+  if (!party || !Array.isArray(commands)) throw new Error("party + commands[] required");
+  res.json(await ledger.walletPrepare(String(party), commands));
+}));
+app.post("/api/wallet/execute", h(async (req, res) => {
+  const { party, preparedTransaction, hashingSchemeVersion, fingerprint, signature } = req.body ?? {};
+  if (!party || !preparedTransaction || !hashingSchemeVersion || !fingerprint || !signature) throw new Error("party + preparedTransaction + hashingSchemeVersion + fingerprint + signature required");
+  res.json(await ledger.walletExecute(String(party), preparedTransaction, String(hashingSchemeVersion), String(fingerprint), String(signature)));
+}));
+
 // ── lender ──
 app.post("/api/bids", h(async (req, res) => {
   const party = requireParty(req, res); if (!party) return;

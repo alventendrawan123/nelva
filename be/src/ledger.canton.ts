@@ -357,4 +357,60 @@ export class CantonLedger implements Ledger {
     if (!name) return null;
     return this.ensureParty(name);
   }
+
+  // ── external-party wallet relay (BE never holds the user's key) ──
+  private _sync: string | null = null;
+  private async synchronizerId(): Promise<string> {
+    if (this._sync) return this._sync;
+    const r = await get("/v2/state/connected-synchronizers");
+    this._sync = r.connectedSynchronizers?.[0]?.synchronizerId;
+    if (!this._sync) throw new Error("no connected synchronizer");
+    return this._sync;
+  }
+  // mint starter cash for a freshly-onboarded external party (custodian-signed; owner = the external party)
+  private async fundPid(ownerPid: string, amount: number, instrument = "USD") {
+    const cust = await this.ensureParty("Custodian");
+    await this.create([cust], "Asset:Holding", { custodian: cust, owner: ownerPid, amount: String(amount), instrument, locker: null });
+  }
+
+  // step 1: FE sends its public key -> we ask the node to build the onboarding topology + return the hash to sign
+  async walletOnboard(partyHint: string, publicKeyB64: string) {
+    const synchronizer = await this.synchronizerId();
+    const r = await post("/v2/parties/external/generate-topology", {
+      synchronizer,
+      partyHint,
+      publicKey: { format: "CRYPTO_KEY_FORMAT_DER_X509_SUBJECT_PUBLIC_KEY_INFO", keyData: publicKeyB64, keySpec: "SIGNING_KEY_SPEC_EC_CURVE25519" },
+      otherConfirmingParticipantUids: [],
+    });
+    return { partyId: r.partyId, multiHash: r.multiHash, fingerprint: r.publicKeyFingerprint, topologyTransactions: r.topologyTransactions };
+  }
+  // step 2: FE signs the multiHash locally and returns it -> we finalize allocation + fund the new party
+  async walletAllocate(topologyTransactions: any[], fingerprint: string, multiHashSig: string) {
+    const synchronizer = await this.synchronizerId();
+    const r = await post("/v2/parties/external/allocate", {
+      synchronizer,
+      onboardingTransactions: topologyTransactions.map((t) => ({ transaction: t })),
+      multiHashSignatures: [{ format: "SIGNATURE_FORMAT_CONCAT", signature: multiHashSig, signedBy: fingerprint, signingAlgorithmSpec: "SIGNING_ALGORITHM_SPEC_ED25519" }],
+      identityProviderId: "",
+    });
+    if (r.partyId) { try { await this.fundPid(r.partyId, 200); } catch (e) { console.warn("fund failed", e); } }
+    return r;
+  }
+  // step 3: build a transaction for the user's commands -> return the hash for the FE to sign. actAs is forced to the wallet party.
+  async walletPrepare(party: string, commands: any[]) {
+    const synchronizerId = await this.synchronizerId();
+    const r = await post("/v2/interactive-submission/prepare", {
+      userId: USER, commandId: this.nid("wc"), actAs: [party], synchronizerId,
+      commands, packageIdSelectionPreference: [], verboseHashing: true,
+    });
+    return { preparedTransaction: r.preparedTransaction, preparedTransactionHash: r.preparedTransactionHash, hashingSchemeVersion: r.hashingSchemeVersion };
+  }
+  // step 4: FE returns the signature over the prepared hash -> we submit. The key never left the browser.
+  async walletExecute(party: string, preparedTransaction: string, hashingSchemeVersion: string, fingerprint: string, sig: string) {
+    return post("/v2/interactive-submission/execute", {
+      preparedTransaction, hashingSchemeVersion, userId: USER, submissionId: this.nid("we"),
+      deduplicationPeriod: { Empty: {} },
+      partySignatures: { signatures: [{ party, signatures: [{ format: "SIGNATURE_FORMAT_CONCAT", signature: sig, signedBy: fingerprint, signingAlgorithmSpec: "SIGNING_ALGORITHM_SPEC_ED25519" }] }] },
+    });
+  }
 }
