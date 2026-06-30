@@ -82,10 +82,11 @@ app.post("/api/wallet/allocate", h(async (req, res) => {
   res.json(await ledger.walletAllocate(topologyTransactions, String(fingerprint), String(multiHashSignature)));
 }));
 app.post("/api/wallet/prepare", h(async (req, res) => {
-  const { party, commands } = req.body ?? {};
+  const { party, commands, disclosedContracts } = req.body ?? {};
   if (!party || !Array.isArray(commands)) throw new Error("party + commands[] required");
-  res.json(await ledger.walletPrepare(String(party), commands));
+  res.json(await ledger.walletPrepare(String(party), commands, Array.isArray(disclosedContracts) ? disclosedContracts : []));
 }));
+app.get("/api/wallet/accept-info", h(async (req, res) => res.json(await ledger.walletAcceptInfo(String(req.query.proposalId ?? "")))));
 app.post("/api/wallet/execute", h(async (req, res) => {
   const { party, preparedTransaction, hashingSchemeVersion, fingerprint, signature } = req.body ?? {};
   if (!party || !preparedTransaction || !hashingSchemeVersion || !fingerprint || !signature) throw new Error("party + preparedTransaction + hashingSchemeVersion + fingerprint + signature required");

@@ -37,10 +37,11 @@ export interface Ledger {
   // external-party wallet relay (canton only; BE never holds the key)
   walletOnboard(partyHint: string, publicKeyB64: string): Promise<any>;
   walletAllocate(topologyTransactions: any[], fingerprint: string, multiHashSig: string): Promise<any>;
-  walletPrepare(party: string, commands: any[]): Promise<any>;
+  walletPrepare(party: string, commands: any[], disclosedContracts?: any[]): Promise<any>;
   walletExecute(party: string, preparedTransaction: string, hashingSchemeVersion: string, fingerprint: string, sig: string): Promise<any>;
   config(): Promise<any>;
   walletHoldings(party: string): Promise<any[]>;
+  walletAcceptInfo(proposalCid: string): Promise<any>;
 }
 
 export const LEDGER_MODE = process.env.LEDGER_MODE === "canton" ? "canton" : "mock";

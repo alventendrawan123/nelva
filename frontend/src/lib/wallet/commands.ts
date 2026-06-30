@@ -148,3 +148,26 @@ export async function borrowAsWallet(
     },
   ]);
 }
+
+/** Accept a match proposal as the wallet borrower — draws lender funds + collateral
+ *  and creates the Loan, all in one wallet-signed transaction. The BE supplies the
+ *  disclosed contracts (the matched bids + their locked holdings) the borrower can't see. */
+export async function acceptAsWallet(proposalCid: string): Promise<void> {
+  const { packageId } = await getConfig();
+  const info = await fetch(
+    `${API_BASE_URL}/wallet/accept-info?proposalId=${encodeURIComponent(proposalCid)}`,
+  ).then((r) => r.json());
+  await submitAsWallet(
+    [
+      {
+        ExerciseCommand: {
+          templateId: `${packageId}:Nelva.Settlement:MatchProposal`,
+          contractId: proposalCid,
+          choice: "Accept",
+          choiceArgument: {},
+        },
+      },
+    ],
+    info.disclosed ?? [],
+  );
+}

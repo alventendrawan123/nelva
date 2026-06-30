@@ -5,7 +5,7 @@ import { useFeedback } from "@/context/FeedbackContext";
 import { useParty } from "@/context/PartyContext";
 import { useWallet } from "@/context/WalletContext";
 import { api } from "@/lib/api/endpoints";
-import { borrowAsWallet, placeBidAsWallet } from "@/lib/wallet/commands";
+import { acceptAsWallet, borrowAsWallet, placeBidAsWallet } from "@/lib/wallet/commands";
 
 const keys = {
   status: ["status"] as const,
@@ -142,8 +142,12 @@ export function useBorrow() {
 
 export function useAccept() {
   const { party } = useParty();
+  const { partyId } = useWallet();
   return useMutation({
-    mutationFn: (proposalId: string) => api.accept(party ?? "", proposalId),
+    mutationFn: (proposalId: string): Promise<void> =>
+      partyId
+        ? acceptAsWallet(proposalId)
+        : api.accept(party ?? "", proposalId).then(() => undefined),
     ...useMarketCallbacks("Proposal accepted - loan created."),
   });
 }

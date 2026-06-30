@@ -56,12 +56,15 @@ export async function connectWallet(partyHint: string): Promise<string> {
 }
 
 /** Submit Daml commands signed by the connected wallet (key stays local). */
-export async function submitAsWallet(commands: unknown[]): Promise<void> {
+export async function submitAsWallet(
+  commands: unknown[],
+  disclosedContracts: unknown[] = [],
+): Promise<void> {
   const party = wallet.party();
   const fingerprint = wallet.fingerprint();
   if (!party || !fingerprint) throw new Error("Wallet not connected.");
 
-  const prep = await call<PrepareResponse>("/wallet/prepare", { party, commands });
+  const prep = await call<PrepareResponse>("/wallet/prepare", { party, commands, disclosedContracts });
   const signature = await signHashB64(prep.preparedTransactionHash);
   await call("/wallet/execute", {
     party,

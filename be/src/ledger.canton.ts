@@ -398,13 +398,50 @@ export class CantonLedger implements Ledger {
     return r;
   }
   // step 3: build a transaction for the user's commands -> return the hash for the FE to sign. actAs is forced to the wallet party.
-  async walletPrepare(party: string, commands: any[]) {
+  async walletPrepare(party: string, commands: any[], disclosedContracts: any[] = []) {
     const synchronizerId = await this.synchronizerId();
     const r = await post("/v2/interactive-submission/prepare", {
       userId: USER, commandId: this.nid("wc"), actAs: [party], synchronizerId,
       commands, packageIdSelectionPreference: [], verboseHashing: true,
+      disclosedContracts,
     });
     return { preparedTransaction: r.preparedTransaction, preparedTransactionHash: r.preparedTransactionHash, hashingSchemeVersion: r.hashingSchemeVersion };
+  }
+
+  // ACS (operator view) WITH createdEventBlob — needed to build disclosed contracts.
+  private async acsWithBlobs(party: string): Promise<Map<string, { templateId: string; arg: any; blob: string }>> {
+    const end = (await get("/v2/state/ledger-end")).offset;
+    const arr: any[] = await post("/v2/state/active-contracts", {
+      activeAtOffset: end,
+      eventFormat: { filtersByParty: { [party]: { cumulative: [{ identifierFilter: { WildcardFilter: { value: { includeCreatedEventBlob: true } } } }] } }, verbose: true },
+    });
+    const m = new Map<string, { templateId: string; arg: any; blob: string }>();
+    for (const e of arr) {
+      const ce = e?.contractEntry?.JsActiveContract?.createdEvent;
+      if (ce?.contractId) m.set(ce.contractId, { templateId: ce.templateId, arg: ce.createArgument, blob: ce.createdEventBlob });
+    }
+    return m;
+  }
+  // disclosed contracts a wallet borrower needs to Accept a proposal: the matched
+  // SealedBids + each bid's locked Holding (not visible to the borrower otherwise).
+  async walletAcceptInfo(proposalCid: string) {
+    const sync = await this.synchronizerId();
+    const op = await this.ensureParty("Operator");
+    const blobs = await this.acsWithBlobs(op);
+    const prop = blobs.get(proposalCid);
+    if (!prop) throw new Error("proposal not found");
+    const cids = new Set<string>();
+    for (const t of prop.arg.matchedTicks ?? []) {
+      cids.add(t.bidCid);
+      const bid = blobs.get(t.bidCid);
+      if (bid?.arg?.holdingCid) cids.add(bid.arg.holdingCid);
+    }
+    const disclosed = [...cids].map((cid) => {
+      const c = blobs.get(cid);
+      if (!c) throw new Error(`referenced contract ${cid} not found`);
+      return { templateId: c.templateId, contractId: cid, createdEventBlob: c.blob, synchronizerId: sync };
+    });
+    return { proposalCid, disclosed };
   }
   // step 4: FE returns the signature over the prepared hash -> we submit. The key never left the browser.
   async walletExecute(party: string, preparedTransaction: string, hashingSchemeVersion: string, fingerprint: string, sig: string) {
