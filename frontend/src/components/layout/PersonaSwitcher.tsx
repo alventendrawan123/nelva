@@ -3,10 +3,15 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { PERSONAS } from "@/config/nav";
 import { useParty } from "@/context/PartyContext";
+import { useWallet } from "@/context/WalletContext";
 
 export function PersonaSwitcher() {
   const { persona: active, setPersona: setActive } = useParty();
+  const { partyId } = useWallet();
   const prefersReducedMotion = useReducedMotion();
+
+  // a connected wallet is the single identity — the demo persona switcher hides
+  if (partyId) return null;
 
   return (
     <fieldset
