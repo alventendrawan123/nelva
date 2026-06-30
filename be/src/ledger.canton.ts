@@ -253,9 +253,17 @@ export class CantonLedger implements Ledger {
     const aud = await this.ensureParty("Auditor");
     const bids = await this.acsAs(op, "Lending:SealedBid");
     const borrows = await this.acsAs(op, "Lending:BorrowIntent");
-    if (!bids.length || !borrows.length) return [];
+    // Skip bids/borrows already committed to a PENDING proposal — they're only
+    // consumed at Accept, so without this the auto-matcher re-matches the same
+    // ones every tick and proposals pile up.
+    const proposals = await this.acsAs(op, "Settlement:MatchProposal");
+    const usedBids = new Set<string>(proposals.flatMap((p) => (p.arg.matchedTicks ?? []).map((t: any) => t.bidCid)));
+    const usedBorrows = new Set<string>(proposals.map((p) => p.arg.borrowCid));
+    const freeBids = bids.filter((b) => !usedBids.has(b.cid));
+    const freeBorrows = borrows.filter((b) => !usedBorrows.has(b.cid));
+    if (!freeBids.length || !freeBorrows.length) return [];
     const rnd = this.made(await this.create([op], "Settlement:MatchRound", { operator: op, auditor: aud }), "Settlement:MatchRound");
-    const tree = await this.exercise([op], "Settlement:MatchRound", rnd.cid, "RunMatch", { bidCids: bids.map((b) => b.cid), borrowCids: borrows.map((b) => b.cid) });
+    const tree = await this.exercise([op], "Settlement:MatchRound", rnd.cid, "RunMatch", { bidCids: freeBids.map((b) => b.cid), borrowCids: freeBorrows.map((b) => b.cid) });
     return this.allMade(tree, "Settlement:MatchProposal").map((x) => this.propDto(x));
   }
   async runCheatMatch(): Promise<MatchProposal[]> {
