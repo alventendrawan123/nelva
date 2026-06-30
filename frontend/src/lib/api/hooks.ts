@@ -5,7 +5,7 @@ import { useFeedback } from "@/context/FeedbackContext";
 import { useParty } from "@/context/PartyContext";
 import { useWallet } from "@/context/WalletContext";
 import { api } from "@/lib/api/endpoints";
-import { acceptAsWallet, borrowAsWallet, placeBidAsWallet } from "@/lib/wallet/commands";
+import { acceptAsWallet, borrowAsWallet, placeBidAsWallet, rejectAsWallet, repayAsWallet } from "@/lib/wallet/commands";
 
 const keys = {
   status: ["status"] as const,
@@ -154,16 +154,24 @@ export function useAccept() {
 
 export function useReject() {
   const { party } = useParty();
+  const { partyId } = useWallet();
   return useMutation({
-    mutationFn: (proposalId: string) => api.reject(party ?? "", proposalId),
+    mutationFn: (proposalId: string): Promise<void> =>
+      partyId
+        ? rejectAsWallet(proposalId)
+        : api.reject(party ?? "", proposalId).then(() => undefined),
     ...useMarketCallbacks("Proposal rejected."),
   });
 }
 
 export function useRepay() {
   const { party } = useParty();
+  const { partyId } = useWallet();
   return useMutation({
-    mutationFn: (loanId: string) => api.repay(party ?? "", loanId),
+    mutationFn: (loanId: string): Promise<void> =>
+      partyId
+        ? repayAsWallet(loanId)
+        : api.repay(party ?? "", loanId).then(() => undefined),
     ...useMarketCallbacks("Loan repaid."),
   });
 }

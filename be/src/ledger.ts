@@ -42,6 +42,7 @@ export interface Ledger {
   config(): Promise<any>;
   walletHoldings(party: string): Promise<any[]>;
   walletAcceptInfo(proposalCid: string): Promise<any>;
+  walletRepayInfo(party: string, loanId: string): Promise<any>;
 }
 
 export const LEDGER_MODE = process.env.LEDGER_MODE === "canton" ? "canton" : "mock";

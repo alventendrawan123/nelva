@@ -171,3 +171,59 @@ export async function acceptAsWallet(proposalCid: string): Promise<void> {
     info.disclosed ?? [],
   );
 }
+
+/** Repay a loan as the wallet borrower — pays each lender principal + interest and
+ *  reclaims collateral, all wallet-signed. The borrower pays from their OWN unlocked
+ *  holding (> owed), not minted funds; the BE supplies the operator-signed
+ *  CreditScore (BumpUp target) as a disclosed contract. */
+export async function repayAsWallet(loanId: string): Promise<void> {
+  const party = wallet.party();
+  if (!party) throw new Error("Wallet not connected.");
+  const { packageId } = await getConfig();
+  const info = await fetch(
+    `${API_BASE_URL}/wallet/repay-info?party=${encodeURIComponent(party)}&loanId=${encodeURIComponent(loanId)}`,
+  ).then((r) => r.json());
+  if (info?.error) throw new Error(String(info.error));
+  const owed = Number(info.owed);
+
+  // payLenders splits `owed` out of one holding and returns the change, so the
+  // source must be a single unlocked holding strictly greater than owed.
+  const source = (await walletHoldings()).find((h) => !h.locked && h.amount > owed);
+  if (!source) {
+    throw new Error(
+      `Not enough liquid balance to repay — need a single holding above ${owed.toFixed(2)} nUSD.`,
+    );
+  }
+
+  await submitAsWallet(
+    [
+      {
+        ExerciseCommand: {
+          templateId: `${packageId}:Nelva.Settlement:Loan`,
+          contractId: loanId,
+          choice: "Repay",
+          choiceArgument: { repaymentCid: source.cid, creditScoreCid: info.creditScoreCid },
+        },
+      },
+    ],
+    info.disclosed ?? [],
+  );
+}
+
+/** Walk away from a match proposal as the wallet borrower — 5% of collateral is
+ *  slashed to the operator, 95% returned unlocked. The collateral is borrower-owned
+ *  and the operator authority comes from the proposal's signature, so no disclosed
+ *  contracts are needed. */
+export async function rejectAsWallet(proposalCid: string): Promise<void> {
+  const { packageId } = await getConfig();
+  await submitAsWallet([
+    {
+      ExerciseCommand: {
+        templateId: `${packageId}:Nelva.Settlement:MatchProposal`,
+        contractId: proposalCid,
+        choice: "Reject",
+        choiceArgument: {},
+      },
+    },
+  ]);
+}

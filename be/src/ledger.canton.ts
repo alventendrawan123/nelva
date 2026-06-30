@@ -451,6 +451,31 @@ export class CantonLedger implements Ledger {
     });
     return { proposalCid, disclosed };
   }
+  // info a wallet borrower needs to Repay: total `owed` (principal + per-lender
+  // interest) + the operator-signed CreditScore to BumpUp (disclosed, since it's
+  // freshly created). The borrower pays from their OWN unlocked holding (> owed),
+  // not a minted one — that's the production path.
+  async walletRepayInfo(party: string, loanId: string) {
+    const sync = await this.synchronizerId();
+    const bor = await this.ensureParty(party);
+    const op = await this.ensureParty("Operator");
+    const loan = (await this.acsAs(bor, "Settlement:Loan")).find((l) => l.cid === loanId);
+    if (!loan) throw new Error("loan not found");
+    const ticks: any[] = loan.arg.ticks ?? [];
+    const owed = ticks.reduce((a, t) => a + Number(t.amount) + Number(t.amount) * Number(t.rate), 0);
+    const creditScoreCid = await this.ensureCreditScore(bor);
+    const blobs = await this.acsWithBlobs(op);
+    // the borrower can't see the CreditScore until it lands in its ACS, and never
+    // sees the collateral escrow (DrawLocked to the operator at Accept) — Repay
+    // transfers it back, so both must be disclosed for the wallet's prepare.
+    const disclosed = [creditScoreCid, loan.arg.collateralCid]
+      .map((cid) => {
+        const c = blobs.get(cid);
+        return c ? { templateId: c.templateId, contractId: cid, createdEventBlob: c.blob, synchronizerId: sync } : null;
+      })
+      .filter(Boolean);
+    return { loanId, owed, creditScoreCid, disclosed };
+  }
   // step 4: FE returns the signature over the prepared hash -> we submit. The key never left the browser.
   async walletExecute(party: string, preparedTransaction: string, hashingSchemeVersion: string, fingerprint: string, sig: string) {
     return post("/v2/interactive-submission/execute", {

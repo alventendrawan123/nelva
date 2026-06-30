@@ -79,4 +79,5 @@ export class MockLedger implements Ledger {
   async config(): Promise<any> { return { packageId: "mock", parties: { operator: "Operator", auditor: "Auditor", custodian: "Custodian" } }; }
   async walletHoldings(): Promise<any[]> { this.noWallet(); }
   async walletAcceptInfo(): Promise<any> { this.noWallet(); }
+  async walletRepayInfo(): Promise<any> { this.noWallet(); }
 }

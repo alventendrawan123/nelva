@@ -25,4 +25,7 @@ Thumbs.db
 # ── Archives / temp / logs ───────────────────────────────
 *.zip
 *.log
+# rotated canton logs (canton.log.2026-...gz) + sandbox log dir
+*.log.*
+sc/log/
 *.tmp
