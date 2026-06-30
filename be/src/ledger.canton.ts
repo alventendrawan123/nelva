@@ -64,6 +64,7 @@ export class CantonLedger implements Ledger {
   private nid(p: string) { return `${p}-${Date.now().toString(36)}-${++this.seq}`; }
 
   private async ensureParty(name: string): Promise<string> {
+    if (name.includes("::")) return name; // already a full party-id (e.g. an external wallet party) — use as-is
     const c = this.parties.get(name);
     if (c) return c;
     try {

@@ -8,6 +8,7 @@ import { TourOverlay } from "@/components/tour/TourOverlay";
 import { FeedbackProvider } from "@/context/FeedbackContext";
 import { PartyProvider } from "@/context/PartyContext";
 import { UIProvider } from "@/context/UIContext";
+import { WalletProvider } from "@/context/WalletContext";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -22,6 +23,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <FeedbackProvider>
+        <WalletProvider>
         <PartyProvider>
           <UIProvider>
             <TourProvider>
@@ -31,6 +33,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             </TourProvider>
           </UIProvider>
         </PartyProvider>
+        </WalletProvider>
       </FeedbackProvider>
     </QueryClientProvider>
   );

@@ -1,9 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
-import { BalancePill } from "@/components/layout/BalancePill";
+import { ConnectWallet } from "@/components/layout/ConnectWallet";
 import { NavLinks } from "@/components/layout/NavLinks";
 import { PersonaSwitcher } from "@/components/layout/PersonaSwitcher";
-import { WalletPill } from "@/components/layout/WalletPill";
 
 export function Navbar() {
   return (
@@ -27,8 +26,7 @@ export function Navbar() {
 
         <div className="flex items-center gap-3">
           <PersonaSwitcher />
-          <BalancePill />
-          <WalletPill />
+          <ConnectWallet />
         </div>
       </div>
     </header>
