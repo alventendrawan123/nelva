@@ -414,4 +414,23 @@ export class CantonLedger implements Ledger {
       partySignatures: { signatures: [{ party, signatures: [{ format: "SIGNATURE_FORMAT_CONCAT", signature: sig, signedBy: fingerprint, signingAlgorithmSpec: "SIGNING_ALGORITHM_SPEC_ED25519" }] }] },
     });
   }
+
+  // package id + node-hosted party ids, so the FE can build Daml commands for wallet signing
+  async config() {
+    const [operator, auditor, custodian] = await Promise.all([
+      this.ensureParty("Operator"),
+      this.ensureParty("Auditor"),
+      this.ensureParty("Custodian"),
+    ]);
+    return { packageId: PKG, parties: { operator, auditor, custodian } };
+  }
+  // a party's Holding contracts WITH contract ids (the FE needs cids to lock/split/bid)
+  async walletHoldings(party: string) {
+    if (!party) return [];
+    const pid = await this.ensureParty(party);
+    const hs = await this.acsAs(pid, "Asset:Holding");
+    return hs
+      .filter((x) => x.arg.owner === pid)
+      .map((x) => ({ cid: x.cid, amount: Number(x.arg.amount), instrument: x.arg.instrument, locked: x.arg.locker != null }));
+  }
 }

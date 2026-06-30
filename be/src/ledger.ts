@@ -39,6 +39,8 @@ export interface Ledger {
   walletAllocate(topologyTransactions: any[], fingerprint: string, multiHashSig: string): Promise<any>;
   walletPrepare(party: string, commands: any[]): Promise<any>;
   walletExecute(party: string, preparedTransaction: string, hashingSchemeVersion: string, fingerprint: string, sig: string): Promise<any>;
+  config(): Promise<any>;
+  walletHoldings(party: string): Promise<any[]>;
 }
 
 export const LEDGER_MODE = process.env.LEDGER_MODE === "canton" ? "canton" : "mock";

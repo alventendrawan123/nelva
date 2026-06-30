@@ -91,6 +91,8 @@ app.post("/api/wallet/execute", h(async (req, res) => {
   if (!party || !preparedTransaction || !hashingSchemeVersion || !fingerprint || !signature) throw new Error("party + preparedTransaction + hashingSchemeVersion + fingerprint + signature required");
   res.json(await ledger.walletExecute(String(party), preparedTransaction, String(hashingSchemeVersion), String(fingerprint), String(signature)));
 }));
+app.get("/api/config", h(async (_req, res) => res.json(await ledger.config())));
+app.get("/api/wallet/holdings", h(async (req, res) => res.json(await ledger.walletHoldings(who(req).party ?? ""))));
 
 // ── lender ──
 app.post("/api/bids", h(async (req, res) => {
