@@ -4,35 +4,9 @@ export const NAV_LINKS = [
   { label: "Profile", href: "/profile" },
 ] as const;
 
-export const PERSONAS = [
-  "Lender A",
-  "Lender B",
-  "Borrower",
-  "Operator",
-  "Auditor",
-  "Outsider",
-] as const;
-
-export type Persona = (typeof PERSONAS)[number];
-
-export const PERSONA_PARTY: Record<Persona, string | undefined> = {
-  "Lender A": "LenderA",
-  "Lender B": "LenderB",
-  Borrower: "Borrower",
-  Operator: "Operator",
-  Auditor: "Auditor",
-  Outsider: undefined,
-};
-
+// Single-user, connect-first: the connected wallet is the only identity. There
+// is no persona switcher — a connected party can borrow, lend, and see its own
+// status; the Lens stays a public transparency view.
 export const HOME_TABS = ["Borrow", "Lend", "Lens", "Status"] as const;
 
 export type HomeTab = (typeof HOME_TABS)[number];
-
-export const PERSONA_TABS: Record<Persona, HomeTab[]> = {
-  "Lender A": ["Lend", "Lens", "Status"],
-  "Lender B": ["Lend", "Lens", "Status"],
-  Borrower: ["Borrow", "Lens", "Status"],
-  Operator: ["Lens", "Status"],
-  Auditor: ["Lens", "Status"],
-  Outsider: ["Status", "Lens"],
-};

@@ -8,7 +8,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useParty } from "@/context/PartyContext";
 import { useUI } from "@/context/UIContext";
 import { TOUR_STEPS, type TourStep } from "./steps";
 
@@ -28,7 +27,6 @@ type TourContextValue = {
 const TourContext = createContext<TourContextValue | null>(null);
 
 export function TourProvider({ children }: { children: React.ReactNode }) {
-  const { setPersona } = useParty();
   const { setActiveHomeTab } = useUI();
   const [isActive, setIsActive] = useState(false);
   const [index, setIndex] = useState(0);
@@ -63,8 +61,8 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
     if (!isActive) {
       return;
     }
-    TOUR_STEPS[index]?.onEnter?.({ setPersona, setActiveHomeTab });
-  }, [isActive, index, setPersona, setActiveHomeTab]);
+    TOUR_STEPS[index]?.onEnter?.({ setActiveHomeTab });
+  }, [isActive, index, setActiveHomeTab]);
 
   useEffect(() => {
     if (window.localStorage.getItem(STORAGE_KEY) === "1") {

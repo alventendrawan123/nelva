@@ -1,27 +1,20 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState } from "react";
-import { PERSONA_PARTY, type Persona } from "@/config/nav";
+import { createContext, useContext, useMemo } from "react";
 import { useWallet } from "@/context/WalletContext";
 
-type PartyContextValue = {
-  persona: Persona;
-  party: string | undefined;
-  setPersona: (persona: Persona) => void;
-};
+// The connected wallet is the sole identity (single-user, connect-first). `party`
+// is the connected party id, or undefined when disconnected.
+type PartyContextValue = { party: string | undefined };
 
 const PartyContext = createContext<PartyContextValue | null>(null);
 
 export function PartyProvider({ children }: { children: React.ReactNode }) {
-  const [persona, setPersona] = useState<Persona>("Lender A");
   const { partyId } = useWallet();
-
   const value = useMemo<PartyContextValue>(
-    // a connected wallet is the identity; otherwise fall back to the demo persona
-    () => ({ persona, party: partyId ?? PERSONA_PARTY[persona], setPersona }),
-    [persona, partyId],
+    () => ({ party: partyId ?? undefined }),
+    [partyId],
   );
-
   return (
     <PartyContext.Provider value={value}>{children}</PartyContext.Provider>
   );
