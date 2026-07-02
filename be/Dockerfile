@@ -29,7 +29,7 @@ RUN sed -i 's/\r$//' entrypoint.sh && chmod +x entrypoint.sh
 
 ENV LEDGER_MODE=canton \
     JSON_LEDGER_API=http://localhost:7575 \
-    NELVA_PACKAGE_ID=2ca7c73857de562d7a62f1550384a577c24fa1c5db614c4fd4028c7ddb1847fe \
+    NELVA_PACKAGE_ID=e60f573a2bb609093d80bf0d655bcc3359b19e08857766b4a9c68a3396bae284 \
     PORT=8090
 
 # Pre-warm Canton artifacts into the image (boot once until ready, then stop) so the

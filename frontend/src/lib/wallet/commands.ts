@@ -149,6 +149,7 @@ export async function borrowAsWallet(
           auditor: parties.auditor,
           borrowId: `borrow-${Date.now()}`,
           collateralCid: locked.cid,
+          collateralAmount: String(collateralAmount),
           amount: String(amount),
           maxRate: String(maxRate),
           tier: "Bronze",

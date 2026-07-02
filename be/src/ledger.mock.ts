@@ -1,8 +1,8 @@
 // In-memory mock Ledger — wraps src/store.ts and applies viewer-scoped privacy
 // in the list* methods (mimicking Canton's per-party projection).
 import type { Ledger } from "./ledger.js";
-import { roleOf } from "./types.js";
-import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, HoldingView } from "./types.js";
+import { roleOf, TIER_MULTIPLIER } from "./types.js";
+import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, HoldingView, Tier } from "./types.js";
 import * as S from "./store.js";
 
 export class MockLedger implements Ledger {
@@ -81,4 +81,92 @@ export class MockLedger implements Ledger {
   async walletAcceptInfo(): Promise<any> { this.noWallet(); }
   async walletRepayInfo(): Promise<any> { this.noWallet(); }
   async walletFaucet(): Promise<any> { this.noWallet(); }
+
+  // ── extended stubs (functional against the in-memory store) ──
+  async cancelBorrow(party: string, borrowId: string): Promise<any> {
+    const b = S.db.borrows.find((x) => x.borrowId === borrowId && x.borrower === party);
+    if (!b) throw new Error("borrow not found");
+    if (b.status !== "OPEN") throw new Error("borrow already matched");
+    S.db.borrows = S.db.borrows.filter((x) => x !== b);
+    return { borrowId, status: "CANCELLED" };
+  }
+  async claimExcess(party: string, loanId: string): Promise<any> {
+    const l = S.db.loans.find((x) => x.loanId === loanId && x.borrower === party);
+    if (!l) throw new Error("loan not found");
+    const required = l.principal * TIER_MULTIPLIER[l.tier];
+    const excess = l.collateralAmount - required;
+    if (!(excess > 0)) throw new Error("no excess collateral to claim");
+    l.collateralAmount = required;
+    return { loanId, excessReturned: excess, remainingCollateral: required };
+  }
+  async swapQuote(p: { instrumentIn: string; instrumentOut: string; amountIn: number }) {
+    const pin = S.db.prices.find((x) => x.instrument === p.instrumentIn)?.price;
+    const pout = S.db.prices.find((x) => x.instrument === p.instrumentOut)?.price;
+    if (!pin) throw new Error(`no price for ${p.instrumentIn}`);
+    if (!pout) throw new Error(`no price for ${p.instrumentOut}`);
+    const amountOut = (p.amountIn * pin) / pout;
+    return { instrumentIn: p.instrumentIn, instrumentOut: p.instrumentOut, amountIn: p.amountIn, amountOut, priceIn: pin, priceOut: pout, rate: pin / pout };
+  }
+  async swap(party: string, p: { instrumentIn: string; instrumentOut: string; amountIn: number; minAmountOut?: number }) {
+    const q = await this.swapQuote(p);
+    if (q.amountOut < (p.minAmountOut ?? 0)) throw new Error("slippage: amountOut < minAmountOut");
+    return { holdingCid: `mock-swap-${party}-${Date.now().toString(36)}`, amountOut: q.amountOut, instrumentOut: p.instrumentOut };
+  }
+  async lenderStatus(party: string): Promise<any> {
+    const activeLends = S.db.bids.filter((b) => b.lender === party && b.status === "OPEN");
+    const activeLoans = S.db.loans.filter((l) => l.status === "ACTIVE" && l.ticks.some((t) => t.lender === party));
+    return { party, activeLends, activeLoans, completedLoans: [], pendingPayouts: [] };
+  }
+  async borrowerStatus(party: string): Promise<any> {
+    return {
+      party,
+      pendingIntents: S.db.borrows.filter((b) => b.borrower === party && b.status === "OPEN"),
+      pendingProposals: S.db.proposals.filter((p) => p.borrower === party && p.status === "PENDING"),
+      activeLoans: S.db.loans.filter((l) => l.borrower === party && l.status === "ACTIVE"),
+      completedLoans: [],
+      creditScore: { tier: "Bronze" as Tier, loansRepaid: 0, loansDefaulted: 0, collateralMultiplier: TIER_MULTIPLIER.Bronze },
+    };
+  }
+  async creditScore(_party: string): Promise<any> {
+    return { tier: "Bronze" as Tier, loansRepaid: 0, loansDefaulted: 0, collateralMultiplier: TIER_MULTIPLIER.Bronze };
+  }
+  private _slots = new Map<string, { party: string; amount: number; instrument: string; durationDays: number; exp: number }>();
+  async lendInit(party: string, p: { amount: number; instrument?: string; durationDays?: number }) {
+    const slotId = `slot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const instrument = p.instrument ?? "USD"; const exp = Date.now() + 10 * 60_000;
+    this._slots.set(slotId, { party, amount: p.amount, instrument, durationDays: p.durationDays ?? 30, exp });
+    return { slotId, expiresAt: new Date(exp).toISOString(), amount: p.amount, instrument };
+  }
+  async lendConfirm(party: string, slotId: string, rate: number): Promise<Bid> {
+    const s = this._slots.get(slotId);
+    if (!s || Date.now() > s.exp || s.party !== party) { this._slots.delete(slotId); const e: any = new Error("lend slot expired or unknown"); e.status = 410; throw e; }
+    this._slots.delete(slotId);
+    return S.createBid(party, s.amount, rate, s.instrument, s.durationDays);
+  }
+  async collateralQuote(party: string, amount: number, instrument = "USD") {
+    const b = S.db.borrows.find((x) => x.borrower === party);
+    const tier = (b?.tier ?? "Bronze") as Tier; const multiplier = TIER_MULTIPLIER[tier];
+    const price = S.db.prices.find((p) => p.instrument === instrument)?.price ?? null;
+    const priceKnown = typeof price === "number" && price > 0;
+    const requiredCollateral = priceKnown ? (amount * multiplier) / (price as number) : amount * multiplier;
+    return { party, instrument, amount, tier, multiplier, price, priceKnown, requiredCollateral };
+  }
+  async expireProposals() { return { checked: S.db.proposals.length, expired: 0, stale: [], policy: "report", note: "mock: no expiry clock" }; }
+  async market(): Promise<{ instruments: { instrument: string; openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number; totalOpenBorrowVolume: number; avgLoanSize: number }[] }> {
+    type Agg = { openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number; totalOpenBorrowVolume: number; loanPrincipalSum: number };
+    const byInst = new Map<string, Agg>();
+    const bucket = (inst?: string): Agg => {
+      const key = inst || "USD";
+      let a = byInst.get(key);
+      if (!a) { a = { openBids: 0, openBorrows: 0, activeLoans: 0, totalOpenLendVolume: 0, totalOpenBorrowVolume: 0, loanPrincipalSum: 0 }; byInst.set(key, a); }
+      return a;
+    };
+    for (const b of S.db.bids) if (b.status === "OPEN") { const a = bucket(b.instrument); a.openBids++; a.totalOpenLendVolume += b.amount; }
+    for (const b of S.db.borrows) if (b.status === "OPEN") { const a = bucket(b.instrument); a.openBorrows++; a.totalOpenBorrowVolume += b.amount; }
+    for (const l of S.db.loans) if (l.status === "ACTIVE") { const a = bucket((l as any).instrument); a.activeLoans++; a.loanPrincipalSum += l.principal; }
+    const instruments = [...byInst.entries()]
+      .map(([instrument, a]) => ({ instrument, openBids: a.openBids, openBorrows: a.openBorrows, activeLoans: a.activeLoans, totalOpenLendVolume: a.totalOpenLendVolume, totalOpenBorrowVolume: a.totalOpenBorrowVolume, avgLoanSize: a.activeLoans ? a.loanPrincipalSum / a.activeLoans : 0 }))
+      .sort((x, y) => x.instrument.localeCompare(y.instrument));
+    return { instruments };
+  }
 }

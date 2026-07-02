@@ -1,7 +1,7 @@
 // Ledger interface + factory. server.ts talks ONLY to this, so swapping the
 // in-memory mock for the real Canton JSON Ledger API needs no route changes.
 // Pick the impl with env LEDGER_MODE=mock (default) | canton.
-import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, HoldingView } from "./types.js";
+import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, HoldingView, Tier } from "./types.js";
 import { MockLedger } from "./ledger.mock.js";
 import { CantonLedger } from "./ledger.canton.js";
 
@@ -44,6 +44,20 @@ export interface Ledger {
   walletAcceptInfo(proposalCid: string): Promise<any>;
   walletRepayInfo(party: string, loanId: string): Promise<any>;
   walletFaucet(party: string): Promise<any>;
+
+  // ── extended additions ──
+  cancelBorrow(party: string, borrowId: string): Promise<any>;
+  claimExcess(party: string, loanId: string): Promise<any>;
+  swapQuote(p: { instrumentIn: string; instrumentOut: string; amountIn: number }): Promise<{ instrumentIn: string; instrumentOut: string; amountIn: number; amountOut: number; priceIn: number; priceOut: number; rate: number }>;
+  swap(party: string, p: { instrumentIn: string; instrumentOut: string; amountIn: number; minAmountOut?: number }): Promise<{ holdingCid: string; amountOut: number; instrumentOut: string }>;
+  lenderStatus(party: string): Promise<any>;
+  borrowerStatus(party: string): Promise<any>;
+  creditScore(party: string): Promise<any>;
+  lendInit(party: string, p: { amount: number; instrument?: string; durationDays?: number }): Promise<{ slotId: string; expiresAt: string; amount: number; instrument: string }>;
+  lendConfirm(party: string, slotId: string, rate: number): Promise<Bid>;
+  collateralQuote(party: string, amount: number, instrument?: string): Promise<{ party: string; instrument: string; amount: number; tier: Tier; multiplier: number; price: number | null; priceKnown: boolean; requiredCollateral: number }>;
+  expireProposals(): Promise<{ checked: number; expired: number; stale: { proposalId: string; borrower: string; ageMs: number }[]; policy: string; note: string }>;
+  market(): Promise<{ instruments: { instrument: string; openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number; totalOpenBorrowVolume: number; avgLoanSize: number }[] }>;
 }
 
 export const LEDGER_MODE = process.env.LEDGER_MODE === "canton" ? "canton" : "mock";

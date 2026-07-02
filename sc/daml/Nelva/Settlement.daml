@@ -37,6 +37,50 @@ template PriceUpdate
     signatory oracle
     observer operator
 
+-- Oracle-priced swap venue: no AMM curve, no owner-price drain.
+-- No AMM curve, no pre-funded inventory: the swapper's UNLOCKED in-Holding moves to
+-- the operator's pool account and the custodian MINTS the out-Holding at the oracle
+-- price. amountOut = amountIn * priceIn / priceOut. minAmountOut is a slippage floor.
+template SwapPool
+  with
+    operator : Party
+    custodian : Party
+  where
+    signatory operator, custodian
+
+    -- swapper hands in `inCid` (their UNLOCKED Holding of instrumentIn), names
+    -- instrumentOut, passes the two latest PriceUpdate cids. Returns the minted
+    -- out-Holding. nonconsuming: the pool persists across swaps.
+    nonconsuming choice Swap : ContractId Holding
+      with
+        swapper : Party
+        inCid : ContractId Holding
+        instrumentOut : Text
+        priceInCid : ContractId PriceUpdate
+        priceOutCid : ContractId PriceUpdate
+        minAmountOut : Numeric 10
+      controller swapper, operator
+      do
+        inH  <- fetch inCid
+        pIn  <- fetch priceInCid
+        pOut <- fetch priceOutCid
+        assertMsg "swapper does not own the in-holding" (inH.owner == swapper)
+        assertMsg "in-holding is locked" (inH.locker == None)
+        assertMsg "priceIn instrument mismatch"  (pIn.instrument == inH.instrument)
+        assertMsg "priceOut instrument mismatch" (pOut.instrument == instrumentOut)
+        assertMsg "non-positive priceIn"  (pIn.price > 0.0)
+        assertMsg "non-positive priceOut" (pOut.price > 0.0)
+        let amountOut = inH.amount * pIn.price / pOut.price
+        assertMsg "amountOut rounds to zero" (amountOut > 0.0)
+        assertMsg "slippage: amountOut < minAmountOut" (amountOut >= minAmountOut)
+        _ <- exercise inCid Transfer with newOwner = operator
+        create Holding with
+          custodian
+          owner = swapper
+          amount = amountOut
+          instrument = instrumentOut
+          locker = None
+
 template MatchProposal
   with
     operator : Party
@@ -133,6 +177,28 @@ template Loan
         _ <- exercise collateralCid Transfer with newOwner = borrower
         _ <- exercise creditScoreCid BumpUp
         pure ()
+
+    -- Borrower reclaims collateral ABOVE requiredCollateral mid-loan. After Accept
+    -- the escrow is owned by the OPERATOR and UNLOCKED (Accept ran DrawLocked which
+    -- clears the locker), so DrawLockedAmount would abort (it asserts locker /= None).
+    -- Use Split + Transfer (both controller=owner=operator, assert locker==None) —
+    -- the same primitives payLenders/distribute already use on the escrow. This Loan
+    -- is co-signed by the operator, so a borrower-controller body carries operator
+    -- authority. Re-create the Loan with the remaining escrow (ensure still holds at
+    -- equality).
+    choice ClaimExcess : ContractId Loan
+      controller borrower
+      do
+        let excess = collateralAmount - requiredCollateral
+        assertMsg "no excess collateral to claim" (excess > 0.0)
+        (excessPiece, remOpt) <- exercise collateralCid Split with splitAmount = excess
+        _ <- exercise excessPiece Transfer with newOwner = borrower
+        newEscrow <- case remOpt of
+          Some r -> pure r
+          None -> abort "escrow split produced no remainder"
+        create this with
+          collateralCid = newEscrow
+          collateralAmount = requiredCollateral
 
     -- Operator liquidates an unhealthy/matured loan: 5% fee (kept by operator) +
     -- 95% pro-rata to lenders by matched amount, dust -> last lender; tier down.

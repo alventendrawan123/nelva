@@ -3,7 +3,7 @@
 ## Polish / UX (quick wins)
 - [ ] **"Matching…" pending state** — after submitting a bid/borrow there's NO indicator that matching is running; the proposal just appears ~20s later. Show a "⏳ Matching… (~20s)" state in the Match-proposals area (+ "X locked") so the user knows it's working, not stuck. (UX feedback from live E2E.)
 - [ ] **FE collateral validation** — warn/block when collateral < 2× borrow (Bronze) *before* submit, instead of failing at Accept with "Loan precondition violated". (found during E2E: collateral 1 submits + matches but Accept is rejected on-ledger.)
-- [ ] **Fix copy** — "Your rate is encrypted and hidden from rival lenders" is GHOST-style. On Canton it's not encrypted; rename to "sealed / private" (native sub-transaction privacy, no encryption/TEE).
+- [ ] **Fix copy** — "Your rate is encrypted and hidden from rival lenders" is the old encrypted-TEE framing. On Canton it's not encrypted; rename to "sealed / private" (native sub-transaction privacy, no encryption/TEE).
 - [ ] **Bid/loan ↗ link** — the external-link icon points at a ledger explorer that doesn't exist for the sandbox → does nothing. Disable it (or wire to a real explorer when on DevNet).
 - [ ] **"New Wallet" button** — let a user wipe the embedded key and create a fresh identity (current Disconnect re-attaches to the same wallet).
 - [ ] (optional) **Connect modal** — small dialog on Connect ("Creating your Canton wallet in this browser → Party … → +200 nUSD") so the instant embedded-wallet connect is clearer to judges.

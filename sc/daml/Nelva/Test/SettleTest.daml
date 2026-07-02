@@ -53,7 +53,7 @@ mkBorrow p amount maxRate tier collateralAmount now = do
   submit p.borrower do
     createCmd BorrowIntent with
       borrower = p.borrower, matchingOperator = p.operator, auditor = p.auditor, borrowId = "X"
-      collateralCid = lockedColl, amount, maxRate, tier, instrument = "USD", deadline = addRelTime now (days 1)
+      collateralCid = lockedColl, collateralAmount, amount, maxRate, tier, instrument = "USD", deadline = addRelTime now (days 1)
 
 -- sum of a party's holding amounts
 holdingTotal : Party -> Script (Numeric 10)

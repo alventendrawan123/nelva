@@ -12,7 +12,7 @@ module Nelva.Lending where
 
 import Nelva.Asset
 import Nelva.Match
-import Nelva.Credit (Tier)
+import Nelva.Credit (Tier, multiplier)
 
 template SealedBid
   with
@@ -65,6 +65,7 @@ template BorrowIntent
     auditor : Party
     borrowId : Text
     collateralCid : ContractId Holding
+    collateralAmount : Numeric 10
     amount : Numeric 10
     maxRate : Numeric 10
     tier : Tier
@@ -73,7 +74,18 @@ template BorrowIntent
   where
     signatory borrower
     observer matchingOperator, auditor
-    ensure amount > 0.0
+    -- ledger-enforced tier-aware over-collateralization. `ensure` is pure over the
+    -- record fields (cannot fetch the Holding), so collateralAmount is a stored
+    -- field the BE keeps consistent with collateralCid.amount.
+    ensure amount > 0.0 && collateralAmount >= amount * multiplier tier
+
+    -- Borrower cancels an unmatched intent and reclaims collateral. Asset.Unlock is
+    -- controller=owner=borrower, so the borrower authority here suffices — no
+    -- operator authority, no disclosed contracts. Consuming: the intent leaves the
+    -- ACS so it can no longer be matched.
+    choice Cancel : ContractId Holding
+      controller borrower
+      do exercise collateralCid Unlock
 
 -- Mappers to the pure matcher inputs.
 bidToInput : SealedBid -> BidInput

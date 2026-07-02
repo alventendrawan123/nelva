@@ -11,7 +11,7 @@ import { cheatMatch, type BidInput } from "./match.js";
 
 const BASE = process.env.JSON_LEDGER_API ?? "http://localhost:7575";
 // package id of the deployed DAR — UPDATE on every SC rebuild (dpm damlc inspect-dar --json)
-const PKG = process.env.NELVA_PACKAGE_ID ?? "2ca7c73857de562d7a62f1550384a577c24fa1c5db614c4fd4028c7ddb1847fe";
+const PKG = process.env.NELVA_PACKAGE_ID ?? "e60f573a2bb609093d80bf0d655bcc3359b19e08857766b4a9c68a3396bae284";
 const USER = process.env.LEDGER_USER_ID ?? "nelva-be";
 const DEADLINE = "2030-01-01T00:00:00Z";
 
@@ -129,7 +129,8 @@ export class CantonLedger implements Ledger {
   }
   private borrowDto(x: CW): BorrowIntent {
     const a = x.arg, tier = a.tier as Tier;
-    return { borrowId: a.borrowId, borrower: nameOf(a.borrower), amount: Number(a.amount), maxRate: Number(a.maxRate), tier, requiredCollateral: Number(a.amount) * TIER_MULTIPLIER[tier], collateralAmount: 0, instrument: a.instrument, status: "OPEN" };
+    const collateralAmount = Number(a.collateralAmount ?? 0);
+    return { borrowId: a.borrowId, borrower: nameOf(a.borrower), amount: Number(a.amount), maxRate: Number(a.maxRate), tier, requiredCollateral: Number(a.amount) * TIER_MULTIPLIER[tier], collateralAmount, instrument: a.instrument, status: "OPEN" };
   }
   private ticksDto(ts: any[]) { return (ts ?? []).map((t) => ({ lender: nameOf(t.lender), bidId: t.bidId, amount: Number(t.amount), rate: Number(t.rate) })); }
   private propDto(x: CW): MatchProposal {
@@ -203,9 +204,17 @@ export class CantonLedger implements Ledger {
     const op = await this.ensureParty("Operator");
     const aud = await this.ensureParty("Auditor");
     const inst = p.instrument ?? "USD";
+    // tier-aware: read the borrower's REAL tier (auto-creates Bronze if none) and
+    // enforce collateral sufficiency at intent time.
+    const csCid = await this.ensureCreditScore(bor);
+    const cs = (await this.acsAs(op, "Credit:CreditScore")).find((x) => x.cid === csCid);
+    const tier = (cs?.arg.tier ?? "Bronze") as Tier;
+    const required = p.amount * TIER_MULTIPLIER[tier];
+    if (p.collateralAmount < required)
+      throw new Error(`insufficient collateral: need ${required.toFixed(2)} for ${tier} (got ${p.collateralAmount})`);
     const coll = this.made(await this.create([cust], "Asset:Holding", { custodian: cust, owner: bor, amount: String(p.collateralAmount), instrument: inst, locker: null }), "Asset:Holding");
     const lc = this.made(await this.exercise([bor], "Asset:Holding", coll.cid, "Lock", { newLocker: op }), "Asset:Holding");
-    const tree = await this.create([bor], "Lending:BorrowIntent", { borrower: bor, matchingOperator: op, auditor: aud, borrowId: this.nid("borrow"), collateralCid: lc.cid, amount: String(p.amount), maxRate: String(p.maxRate), tier: "Bronze", instrument: inst, deadline: DEADLINE });
+    const tree = await this.create([bor], "Lending:BorrowIntent", { borrower: bor, matchingOperator: op, auditor: aud, borrowId: this.nid("borrow"), collateralCid: lc.cid, collateralAmount: String(p.collateralAmount), amount: String(p.amount), maxRate: String(p.maxRate), tier, instrument: inst, deadline: DEADLINE });
     const dto = this.borrowDto(this.made(tree, "Lending:BorrowIntent"));
     dto.collateralAmount = p.collateralAmount;
     return dto;
@@ -511,5 +520,208 @@ export class CantonLedger implements Ledger {
     return hs
       .filter((x) => x.arg.owner === pid)
       .map((x) => ({ cid: x.cid, amount: Number(x.arg.amount), instrument: x.arg.instrument, locked: x.arg.locker != null }));
+  }
+
+  // ══ extended additions ══
+
+  // cancel-borrow / claim-excess (SC-backed)
+  async cancelBorrow(party: string, borrowId: string): Promise<any> {
+    const bor = await this.ensureParty(party);
+    const bi = (await this.acsAs(bor, "Lending:BorrowIntent")).find((b) => b.arg.borrowId === borrowId);
+    if (!bi) throw new Error("borrow not found");
+    // Cancel is controller=borrower, touches only the borrower-owned locked Holding.
+    await this.exercise([bor], "Lending:BorrowIntent", bi.cid, "Cancel", {});
+    return { borrowId, status: "CANCELLED" };
+  }
+  async claimExcess(party: string, loanId: string): Promise<any> {
+    const bor = await this.ensureParty(party);
+    const op = await this.ensureParty("Operator");
+    const loan = (await this.acsAs(bor, "Settlement:Loan")).find((l) => l.cid === loanId);
+    if (!loan) throw new Error("loan not found");
+    const collateralAmount = Number(loan.arg.collateralAmount);
+    const requiredCollateral = Number(loan.arg.requiredCollateral);
+    const excess = collateralAmount - requiredCollateral;
+    if (!(excess > 0)) throw new Error("no excess collateral to claim");
+    // ClaimExcess (controller=borrower) Splits+Transfers the OPERATOR-owned escrow;
+    // readAs=[op] so the borrower's submission can resolve loan.collateralCid (as accept/repay do).
+    const tree = await this.exercise([bor], "Settlement:Loan", loanId, "ClaimExcess", {}, [op]);
+    const newLoan = this.loanDto(this.made(tree, "Settlement:Loan"));
+    return { loanId: newLoan.loanId, excessReturned: excess, remainingCollateral: requiredCollateral };
+  }
+
+  // swap
+  private async latestPrice(instrument: string): Promise<{ cid: string; price: number }> {
+    const op = await this.ensureParty("Operator");
+    const all = (await this.acsAs(op, "Settlement:PriceUpdate")).filter((x) => x.arg.instrument === instrument);
+    if (!all.length) throw new Error(`no price for ${instrument}; POST /api/admin/price first`);
+    const latest = all.reduce((a, b) => (String(a.arg.asOf) >= String(b.arg.asOf) ? a : b));
+    return { cid: latest.cid, price: Number(latest.arg.price) };
+  }
+  async swapQuote(p: { instrumentIn: string; instrumentOut: string; amountIn: number }) {
+    const [pin, pout] = await Promise.all([this.latestPrice(p.instrumentIn), this.latestPrice(p.instrumentOut)]);
+    const amountOut = (p.amountIn * pin.price) / pout.price;
+    return { instrumentIn: p.instrumentIn, instrumentOut: p.instrumentOut, amountIn: p.amountIn, amountOut, priceIn: pin.price, priceOut: pout.price, rate: pin.price / pout.price };
+  }
+  private async ensureSwapPool(): Promise<string> {
+    const op = await this.ensureParty("Operator");
+    const cust = await this.ensureParty("Custodian");
+    const existing = await this.acsAs(op, "Settlement:SwapPool");
+    if (existing.length) return existing[0].cid;
+    const tree = await this.create([op, cust], "Settlement:SwapPool", { operator: op, custodian: cust });
+    return this.made(tree, "Settlement:SwapPool").cid;
+  }
+  async swap(party: string, p: { instrumentIn: string; instrumentOut: string; amountIn: number; minAmountOut?: number }) {
+    const swapper = await this.ensureParty(party);
+    const op = await this.ensureParty("Operator");
+    const cust = await this.ensureParty("Custodian");
+    const oracle = await this.ensureParty("Oracle");
+    // demo: mint the swapper an UNLOCKED in-Holding of exactly amountIn.
+    const inH = this.made(await this.create([cust], "Asset:Holding", { custodian: cust, owner: swapper, amount: String(p.amountIn), instrument: p.instrumentIn, locker: null }), "Asset:Holding");
+    const [pin, pout] = await Promise.all([this.latestPrice(p.instrumentIn), this.latestPrice(p.instrumentOut)]);
+    const amountOut = (p.amountIn * pin.price) / pout.price;
+    const minOut = p.minAmountOut ?? 0;
+    const pool = await this.ensureSwapPool();
+    // actAs=[swapper, operator] (both controllers); readAs=[oracle] so the PriceUpdate contracts are visible.
+    const tree = await this.exercise([swapper, op], "Settlement:SwapPool", pool, "Swap", {
+      swapper, inCid: inH.cid, instrumentOut: p.instrumentOut,
+      priceInCid: pin.cid, priceOutCid: pout.cid, minAmountOut: String(minOut),
+    }, [oracle]);
+    const out = this.made(tree, "Asset:Holding");
+    return { holdingCid: out.cid, amountOut, instrumentOut: p.instrumentOut };
+  }
+
+  // consolidated dashboards (pure ACS fan-out)
+  private async creditScoreView(borrowerPid: string): Promise<{ tier: Tier; loansRepaid: number; loansDefaulted: number; collateralMultiplier: number }> {
+    await this.ensureCreditScore(borrowerPid);
+    const op = await this.ensureParty("Operator");
+    const cs = (await this.acsAs(op, "Credit:CreditScore")).find((x) => x.arg.borrower === borrowerPid);
+    const tier = (cs?.arg.tier ?? "Bronze") as Tier;
+    return { tier, loansRepaid: Number(cs?.arg.loansRepaid ?? 0), loansDefaulted: Number(cs?.arg.loansDefaulted ?? 0), collateralMultiplier: TIER_MULTIPLIER[tier] };
+  }
+  async lenderStatus(party: string): Promise<any> {
+    const pid = await this.ensureParty(party);
+    const name = nameOf(pid);
+    const activeLends = (await this.acsAs(pid, "Lending:SealedBid")).map((x) => this.bidDto(x));
+    const loans = (await this.acsAs(pid, "Settlement:Loan")).map((x) => this.loanDto(x));
+    const activeLoans = loans
+      .filter((l) => l.ticks.some((t) => t.lender === name))
+      .map((l) => {
+        const mine = l.ticks.filter((t) => t.lender === name);
+        const owedToMe = mine.reduce((a, t) => a + t.amount + t.amount * t.rate, 0);
+        return { loanId: l.loanId, borrower: l.borrower, tier: l.tier, maturity: l.maturity, myTicks: mine, myPrincipal: mine.reduce((a, t) => a + t.amount, 0), owedToMe };
+      });
+    const completedLoans: any[] = [];
+    const pendingPayouts = activeLoans.map((l) => ({ loanId: l.loanId, borrower: l.borrower, amount: l.owedToMe, maturity: l.maturity }));
+    return { party: name, activeLends, activeLoans, completedLoans, pendingPayouts };
+  }
+  async borrowerStatus(party: string): Promise<any> {
+    const pid = await this.ensureParty(party);
+    const name = nameOf(pid);
+    const [intents, proposals, loans, creditScore] = await Promise.all([
+      this.acsAs(pid, "Lending:BorrowIntent"),
+      this.acsAs(pid, "Settlement:MatchProposal"),
+      this.acsAs(pid, "Settlement:Loan"),
+      this.creditScoreView(pid),
+    ]);
+    const pendingIntents = intents.map((x) => this.borrowDto(x));
+    const pendingProposals = proposals.map((x) => this.propDto(x));
+    const activeLoans = loans.map((x) => this.loanDto(x)).filter((l) => l.borrower === name);
+    const completedLoans: any[] = [];
+    return { party: name, pendingIntents, pendingProposals, activeLoans, completedLoans, creditScore };
+  }
+  async creditScore(party: string): Promise<any> {
+    const pid = await this.ensureParty(party);
+    return this.creditScoreView(pid);
+  }
+
+  // 2-phase lend (TTL slot map — the one piece of acceptable pre-ledger BE state)
+  private _lendSlots = new Map<string, { party: string; holdingCid: string; amount: number; instrument: string; durationDays: number; exp: number }>();
+  private static SLOT_TTL_MS = 10 * 60_000;
+  private sweepSlots() { const now = Date.now(); for (const [k, v] of this._lendSlots) if (now > v.exp) this._lendSlots.delete(k); }
+  async lendInit(party: string, p: { amount: number; instrument?: string; durationDays?: number }): Promise<{ slotId: string; expiresAt: string; amount: number; instrument: string }> {
+    this.sweepSlots();
+    const lender = await this.ensureParty(party);
+    const cust = await this.ensureParty("Custodian");
+    const inst = p.instrument ?? "USD";
+    const cash = this.made(await this.create([cust], "Asset:Holding", { custodian: cust, owner: lender, amount: String(p.amount), instrument: inst, locker: null }), "Asset:Holding");
+    const slotId = this.nid("slot");
+    const exp = Date.now() + CantonLedger.SLOT_TTL_MS;
+    this._lendSlots.set(slotId, { party, holdingCid: cash.cid, amount: p.amount, instrument: inst, durationDays: p.durationDays ?? 30, exp });
+    return { slotId, expiresAt: new Date(exp).toISOString(), amount: p.amount, instrument: inst };
+  }
+  async lendConfirm(party: string, slotId: string, rate: number): Promise<Bid> {
+    this.sweepSlots();
+    const s = this._lendSlots.get(slotId);
+    if (!s || Date.now() > s.exp || s.party !== party) {
+      this._lendSlots.delete(slotId);
+      const e: any = new Error("lend slot expired or unknown"); e.status = 410; throw e;
+    }
+    this._lendSlots.delete(slotId);
+    const lender = await this.ensureParty(party);
+    const op = await this.ensureParty("Operator");
+    const aud = await this.ensureParty("Auditor");
+    const locked = this.made(await this.exercise([lender], "Asset:Holding", s.holdingCid, "Lock", { newLocker: op }), "Asset:Holding");
+    const tree = await this.create([lender], "Lending:SealedBid", { lender, matchingOperator: op, auditor: aud, bidId: this.nid("bid"), holdingCid: locked.cid, amount: String(s.amount), bidRate: String(rate), instrument: s.instrument, deadline: DEADLINE });
+    return this.bidDto(this.made(tree, "Lending:SealedBid"));
+  }
+
+  // collateral quote
+  async collateralQuote(party: string, amount: number, instrument = "USD"): Promise<{ party: string; instrument: string; amount: number; tier: Tier; multiplier: number; price: number | null; priceKnown: boolean; requiredCollateral: number }> {
+    const op = await this.ensureParty("Operator");
+    const bor = await this.ensureParty(party);
+    const scored = (await this.acsAs(op, "Credit:CreditScore")).find((x) => x.arg.borrower === bor);
+    let tier: Tier = (scored?.arg.tier as Tier) ?? "Bronze";
+    if (!scored) { await this.ensureCreditScore(bor); tier = "Bronze"; }
+    const multiplier = TIER_MULTIPLIER[tier];
+    const prices = (await this.acsAs(op, "Settlement:PriceUpdate")).filter((pr) => pr.arg.instrument === instrument);
+    prices.sort((a, b) => String(a.arg.asOf).localeCompare(String(b.arg.asOf)));
+    const latest = prices[prices.length - 1];
+    const price = latest ? Number(latest.arg.price) : null;
+    const priceKnown = typeof price === "number" && Number.isFinite(price) && price > 0;
+    const requiredCollateral = priceKnown ? (amount * multiplier) / (price as number) : amount * multiplier;
+    return { party: nameOf(bor), instrument, amount, tier, multiplier, price, priceKnown, requiredCollateral };
+  }
+
+  // expire-proposals (report-only: operator can't finalize a borrower-controlled proposal)
+  private _propSeen = new Map<string, number>();
+  private static PROPOSAL_TTL_MS = 5 * 60_000;
+  private notePropSightings(cids: string[]) { const now = Date.now(); for (const c of cids) if (!this._propSeen.has(c)) this._propSeen.set(c, now); }
+  async expireProposals(): Promise<{ checked: number; expired: number; stale: { proposalId: string; borrower: string; ageMs: number }[]; policy: string; note: string }> {
+    const op = await this.ensureParty("Operator");
+    const props = await this.acsAs(op, "Settlement:MatchProposal");
+    const live = new Set(props.map((p) => p.cid));
+    this.notePropSightings(props.map((p) => p.cid));
+    for (const k of [...this._propSeen.keys()]) if (!live.has(k)) this._propSeen.delete(k);
+    const now = Date.now();
+    const stale = props
+      .map((p) => ({ p, ageMs: now - (this._propSeen.get(p.cid) ?? now) }))
+      .filter((x) => x.ageMs > CantonLedger.PROPOSAL_TTL_MS)
+      .map((x) => ({ proposalId: x.p.cid, borrower: nameOf(x.p.arg.borrower), ageMs: x.ageMs }));
+    return { checked: props.length, expired: 0, stale, policy: "report", note: "operator cannot Accept/Reject (both controller=borrower); auto-accept needs SC MatchProposal.expiresAt + operator ExpireAccept choice. Reported stale proposals only." };
+  }
+
+  // public market feed (aggregate-only; never a rate or identity)
+  async market(): Promise<{ instruments: { instrument: string; openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number; totalOpenBorrowVolume: number; avgLoanSize: number }[] }> {
+    const op = await this.ensureParty("Operator");
+    const [bids, borrows, loans] = await Promise.all([
+      this.acsAs(op, "Lending:SealedBid"),
+      this.acsAs(op, "Lending:BorrowIntent"),
+      this.acsAs(op, "Settlement:Loan"),
+    ]);
+    type Agg = { openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number; totalOpenBorrowVolume: number; loanPrincipalSum: number };
+    const byInst = new Map<string, Agg>();
+    const bucket = (inst: string): Agg => {
+      const key = inst || "USD";
+      let a = byInst.get(key);
+      if (!a) { a = { openBids: 0, openBorrows: 0, activeLoans: 0, totalOpenLendVolume: 0, totalOpenBorrowVolume: 0, loanPrincipalSum: 0 }; byInst.set(key, a); }
+      return a;
+    };
+    for (const b of bids) { const a = bucket(b.arg.instrument); a.openBids++; a.totalOpenLendVolume += Number(b.arg.amount); }
+    for (const b of borrows) { const a = bucket(b.arg.instrument); a.openBorrows++; a.totalOpenBorrowVolume += Number(b.arg.amount); }
+    for (const l of loans) { const a = bucket(l.arg.instrument); a.activeLoans++; a.loanPrincipalSum += Number(l.arg.principal); }
+    const instruments = [...byInst.entries()]
+      .map(([instrument, a]) => ({ instrument, openBids: a.openBids, openBorrows: a.openBorrows, activeLoans: a.activeLoans, totalOpenLendVolume: a.totalOpenLendVolume, totalOpenBorrowVolume: a.totalOpenBorrowVolume, avgLoanSize: a.activeLoans ? a.loanPrincipalSum / a.activeLoans : 0 }))
+      .sort((x, y) => x.instrument.localeCompare(y.instrument));
+    return { instruments };
   }
 }

@@ -35,7 +35,7 @@ function who(req: Request): { party?: string; role: ReturnType<typeof roleOf> } 
 }
 // wrap an async handler -> 400 on error
 const h = (fn: (req: Request, res: Response) => Promise<any>) => (req: Request, res: Response, _n: NextFunction) => {
-  fn(req, res).catch((e: any) => res.status(400).json({ error: String(e?.message ?? e) }));
+  fn(req, res).catch((e: any) => res.status(Number(e?.status) || 400).json({ error: String(e?.message ?? e) }));
 };
 function requireParty(req: Request, res: Response): string | null {
   const { party } = who(req);
@@ -131,12 +131,75 @@ app.post("/api/loans/:id/repay", h(async (req, res) => {
   res.json(await ledger.repay(party, req.params.id));
 }));
 
+// ── cancel-borrow + claim-excess (SC-backed) ──
+app.delete("/api/borrow/:id", h(async (req, res) => {
+  const party = requireParty(req, res); if (!party) return;
+  res.json(await ledger.cancelBorrow(party, req.params.id));
+}));
+app.post("/api/loans/:id/claim-excess", h(async (req, res) => {
+  const party = requireParty(req, res); if (!party) return;
+  res.json(await ledger.claimExcess(party, req.params.id));
+}));
+
+// ── 2-phase lend ──
+app.post("/api/lend/init", h(async (req, res) => {
+  const party = requireParty(req, res); if (!party) return;
+  const { amount, instrument, durationDays } = req.body ?? {};
+  res.status(201).json(await ledger.lendInit(party, { amount: posNum(amount, "amount"), instrument, durationDays: Number(durationDays ?? 30) }));
+}));
+app.post("/api/lend/confirm", h(async (req, res) => {
+  const party = requireParty(req, res); if (!party) return;
+  const { slotId, rate } = req.body ?? {};
+  if (!slotId) throw new Error("slotId required");
+  res.status(201).json(await ledger.lendConfirm(party, String(slotId), posNum(rate, "rate")));
+}));
+
+// ── swap ──
+app.get("/api/swap-quote", h(async (req, res) => {
+  const instrumentIn = String(req.query.instrumentIn ?? "");
+  const instrumentOut = String(req.query.instrumentOut ?? "");
+  if (!instrumentIn || !instrumentOut) throw new Error("instrumentIn + instrumentOut required");
+  if (instrumentIn === instrumentOut) throw new Error("instrumentIn and instrumentOut must differ");
+  const amountIn = posNum(req.query.amountIn, "amountIn");
+  res.json(await ledger.swapQuote({ instrumentIn, instrumentOut, amountIn }));
+}));
+app.post("/api/swap", h(async (req, res) => {
+  const party = requireParty(req, res); if (!party) return;
+  const { instrumentIn, instrumentOut, amountIn, minAmountOut } = req.body ?? {};
+  if (!instrumentIn || !instrumentOut) throw new Error("instrumentIn + instrumentOut required");
+  if (instrumentIn === instrumentOut) throw new Error("instrumentIn and instrumentOut must differ");
+  res.status(201).json(await ledger.swap(party, {
+    instrumentIn: String(instrumentIn),
+    instrumentOut: String(instrumentOut),
+    amountIn: posNum(amountIn, "amountIn"),
+    minAmountOut: minAmountOut != null ? Number(minAmountOut) : undefined,
+  }));
+}));
+
+// ── collateral quote ──
+app.get("/api/collateral-quote", h(async (req, res) => {
+  const party = String(req.query.party ?? "").trim();
+  if (!party) throw new Error("party required");
+  const amount = posNum(req.query.amount, "amount");
+  const instrument = String(req.query.instrument ?? "USD");
+  res.json(await ledger.collateralQuote(party, amount, instrument));
+}));
+
+// ── consolidated per-party dashboards (ungated reads by :party) ──
+app.get("/api/lender-status/:party", h(async (req, res) => res.json(await ledger.lenderStatus(req.params.party))));
+app.get("/api/borrower-status/:party", h(async (req, res) => res.json(await ledger.borrowerStatus(req.params.party))));
+app.get("/api/credit-score/:party", h(async (req, res) => res.json(await ledger.creditScore(req.params.party))));
+
+// ── public marketplace feed (ungated, aggregate-only) ──
+app.get("/api/market", h(async (_req, res) => res.json(await ledger.market())));
+
 // ── operator (admin / demo controls) — operator role only ──
 app.post("/api/admin/run-match", h(async (req, res) => { if (!requireRole(req, res, "operator")) return; res.json({ proposals: await ledger.runMatch() }); }));
 app.post("/api/admin/cheat-match", h(async (req, res) => { if (!requireRole(req, res, "operator")) return; res.json({ proposals: await ledger.runCheatMatch() }); }));
 app.post("/api/admin/price", h(async (req, res) => { if (!requireRole(req, res, "operator")) return; res.json(await ledger.setPrice(String(req.body?.instrument ?? "USD"), posNum(req.body?.price, "price"))); }));
 app.post("/api/admin/liquidate/:loanId", h(async (req, res) => { if (!requireRole(req, res, "operator")) return; res.json(await ledger.liquidate(req.params.loanId)); }));
 app.post("/api/admin/seed", h(async (req, res) => { if (!requireRole(req, res, "operator")) return; await ledger.seed(); res.json({ ok: true }); }));
+app.post("/api/admin/expire-proposals", h(async (req, res) => { if (!requireRole(req, res, "operator")) return; res.json(await ledger.expireProposals()); }));
 
 // ── auditor (differentiator) — auditor role only ──
 app.get("/api/audit/bids", h(async (req, res) => { if (!requireRole(req, res, "auditor")) return; res.json(await ledger.auditBids()); }));
@@ -159,6 +222,7 @@ ledger.seed()
     // when there's nothing to pair — ignore. Canton mode only.
     if (LEDGER_MODE === "canton") {
       setInterval(() => { ledger.runMatch().catch(() => {}); }, 20000);
+      setInterval(() => { ledger.expireProposals().catch(() => {}); }, 20000);
     }
   })
   .catch((e) => { console.error("seed failed:", e); process.exit(1); });
