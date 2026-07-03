@@ -24,15 +24,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <FeedbackProvider>
         <WalletProvider>
-        <PartyProvider>
-          <UIProvider>
-            <TourProvider>
-              {children}
-              <TourOverlay />
-              <TourLauncher />
-            </TourProvider>
-          </UIProvider>
-        </PartyProvider>
+          <PartyProvider>
+            <UIProvider>
+              <TourProvider>
+                {children}
+                <TourOverlay />
+                <TourLauncher />
+              </TourProvider>
+            </UIProvider>
+          </PartyProvider>
         </WalletProvider>
       </FeedbackProvider>
     </QueryClientProvider>

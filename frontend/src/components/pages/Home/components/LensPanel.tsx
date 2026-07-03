@@ -25,7 +25,7 @@ import {
   useSeed,
   useVerify,
 } from "@/lib/api/hooks";
-import type { LensView } from "@/lib/api/schemas";
+import type { AuditBadge, LensView } from "@/lib/api/schemas";
 import { formatAmount, formatRate } from "@/lib/format";
 import { PanelHeading } from "./PanelHeading";
 
@@ -58,18 +58,18 @@ function buildColumns(lens: LensView): LensColumn[] {
       caption: "Sees only its own bid",
       icon: User,
       cells:
-        perspectives.lender.bids.length > 0
-          ? perspectives.lender.bids.map((bid) => ({
+        (perspectives.lender?.bids.length ?? 0) > 0
+          ? (perspectives.lender?.bids ?? []).map((bid) => ({
               label: `${formatAmount(bid.amount)} at ${formatRate(bid.rate)}`,
               tone: "only" as const,
             }))
-          : [{ label: "No own bid", tone: "hidden" as const }],
+          : [{ label: "Hidden", tone: "hidden" as const }],
     },
     {
       persona: "Borrower",
       caption: "Sees only its own loan",
       icon: User,
-      cells: perspectives.borrower.proposal
+      cells: perspectives.borrower?.proposal
         ? [
             {
               label: `Loan ${formatAmount(perspectives.borrower.proposal.principal)}`,
@@ -80,13 +80,13 @@ function buildColumns(lens: LensView): LensColumn[] {
               tone: "only" as const,
             },
           ]
-        : [{ label: "No proposal", tone: "hidden" as const }],
+        : [{ label: "Hidden", tone: "hidden" as const }],
     },
     {
       persona: "Operator",
       caption: "Sees all bids, runs the match",
       icon: Sliders,
-      cells: perspectives.operator.bids.map((bid) => ({
+      cells: (perspectives.operator?.bids ?? []).map((bid) => ({
         label: `${bid.lender}: ${formatAmount(bid.amount)} at ${formatRate(bid.rate)}`,
         tone: "only" as const,
       })),
@@ -95,7 +95,7 @@ function buildColumns(lens: LensView): LensColumn[] {
       persona: "Auditor",
       caption: "Sees all bids, proves honesty",
       icon: ShieldCheck,
-      cells: perspectives.auditor.bids.map((bid) => ({
+      cells: (perspectives.auditor?.bids ?? []).map((bid) => ({
         label: `${bid.lender}: ${formatAmount(bid.amount)} at ${formatRate(bid.rate)}`,
         tone: "only" as const,
       })),
@@ -126,8 +126,11 @@ export function LensPanel() {
 
   const activeId = selected || proposals.data?.[0]?.proposalId || "";
   const lens = useLens(activeId);
-  const badge = lens.data?.perspectives.auditor.badge ?? null;
-  const proposal = lens.data?.perspectives.operator.proposal ?? null;
+  const badge = lens.data?.perspectives.auditor?.badge ?? null;
+  const proposal =
+    lens.data?.perspectives.operator?.proposal ??
+    lens.data?.perspectives.borrower?.proposal ??
+    null;
 
   const handleRun = () =>
     runMatch.mutate(undefined, {
@@ -152,7 +155,11 @@ export function LensPanel() {
         <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-muted">
           Demo controls
         </span>
-        <Button onClick={handleRun} disabled={runMatch.isPending} data-tour="run-match">
+        <Button
+          onClick={handleRun}
+          disabled={runMatch.isPending}
+          data-tour="run-match"
+        >
           <Play className="h-4 w-4" />
           Run Match
         </Button>
@@ -167,7 +174,9 @@ export function LensPanel() {
         </Button>
         <Button
           variant="ghost"
-          onClick={() => seed.mutate(undefined, { onSuccess: () => setSelected("") })}
+          onClick={() =>
+            seed.mutate(undefined, { onSuccess: () => setSelected("") })
+          }
           disabled={seed.isPending}
         >
           <RotateCcw className="h-4 w-4" />
@@ -267,7 +276,7 @@ function VerdictBanner({
   isVerifying,
   onVerify,
 }: {
-  badge: LensView["perspectives"]["auditor"]["badge"];
+  badge: AuditBadge | null;
   isVerifying: boolean;
   onVerify: () => void;
 }) {

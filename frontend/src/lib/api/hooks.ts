@@ -5,7 +5,13 @@ import { useFeedback } from "@/context/FeedbackContext";
 import { useParty } from "@/context/PartyContext";
 import { useWallet } from "@/context/WalletContext";
 import { api } from "@/lib/api/endpoints";
-import { acceptAsWallet, borrowAsWallet, placeBidAsWallet, rejectAsWallet, repayAsWallet } from "@/lib/wallet/commands";
+import {
+  acceptAsWallet,
+  borrowAsWallet,
+  placeBidAsWallet,
+  rejectAsWallet,
+  repayAsWallet,
+} from "@/lib/wallet/commands";
 
 const keys = {
   status: ["status"] as const,
@@ -84,6 +90,15 @@ export function useLens(proposalId: string) {
   });
 }
 
+export function useLenderStatus() {
+  const { party } = useParty();
+  return useQuery({
+    queryKey: ["lender-status", party],
+    queryFn: () => api.lenderStatus(party ?? ""),
+    enabled: Boolean(party),
+  });
+}
+
 function useInvalidateMarket() {
   const queryClient = useQueryClient();
   return () => {
@@ -114,7 +129,13 @@ export function usePlaceBid() {
   const { partyId } = useWallet();
   return useMutation({
     // a connected wallet signs the bid itself; otherwise the demo persona path
-    mutationFn: ({ amount, rate }: { amount: number; rate: number }): Promise<void> =>
+    mutationFn: ({
+      amount,
+      rate,
+    }: {
+      amount: number;
+      rate: number;
+    }): Promise<void> =>
       partyId
         ? placeBidAsWallet(amount, rate)
         : api.placeBid(party ?? "", amount, rate).then(() => undefined),
@@ -134,7 +155,12 @@ export function useBorrow() {
       partyId
         ? borrowAsWallet(input.amount, input.maxRate, input.collateralAmount)
         : api
-            .borrow(party ?? "", input.amount, input.maxRate, input.collateralAmount)
+            .borrow(
+              party ?? "",
+              input.amount,
+              input.maxRate,
+              input.collateralAmount,
+            )
             .then(() => undefined),
     ...useMarketCallbacks("Borrow intent submitted."),
   });

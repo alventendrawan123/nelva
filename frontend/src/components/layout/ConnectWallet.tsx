@@ -10,8 +10,15 @@ function shortId(id: string): string {
 }
 
 export function ConnectWallet() {
-  const { partyId, connecting, error, cantonEnabled, connect, connectCanton, disconnect } =
-    useWallet();
+  const {
+    partyId,
+    connecting,
+    error,
+    cantonEnabled,
+    connect,
+    connectCanton,
+    disconnect,
+  } = useWallet();
   const [available, setAvailable] = useState<number | null>(null);
 
   useEffect(() => {
@@ -20,11 +27,15 @@ export function ConnectWallet() {
       return;
     }
     let live = true;
-    fetch(`${API_BASE_URL}/holdings`, { headers: { Authorization: `Bearer ${partyId}` } })
+    fetch(`${API_BASE_URL}/holdings`, {
+      headers: { Authorization: `Bearer ${partyId}` },
+    })
       .then((r) => r.json())
       .then((rows: { amount: number; locked: boolean }[]) => {
         if (!live || !Array.isArray(rows)) return;
-        setAvailable(rows.filter((h) => !h.locked).reduce((t, h) => t + h.amount, 0));
+        setAvailable(
+          rows.filter((h) => !h.locked).reduce((t, h) => t + h.amount, 0),
+        );
       })
       .catch(() => {});
     return () => {
@@ -76,7 +87,8 @@ export function ConnectWallet() {
     <div className="flex items-center gap-2">
       {available !== null ? (
         <span className="hidden items-center rounded-full border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-foreground sm:inline-flex">
-          {available.toLocaleString("en-US")} <span className="ml-1 text-muted">nUSD</span>
+          {available.toLocaleString("en-US")}{" "}
+          <span className="ml-1 text-muted">nUSD</span>
         </span>
       ) : null}
       <span

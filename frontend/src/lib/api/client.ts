@@ -10,6 +10,13 @@ type CallOptions<T> = {
 
 export class ApiError extends Error {}
 
+const STATUS_MESSAGES: Record<number, string> = {
+  401: "Connect or pick a party first.",
+  403: "This party is not allowed to access that data.",
+  409: "The ledger state changed, please try again.",
+  502: "The ledger is temporarily unavailable.",
+};
+
 export async function call<T>(
   path: string,
   options: CallOptions<T> = {},
@@ -32,10 +39,14 @@ export async function call<T>(
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      const message =
+      const serverError =
         typeof payload === "object" && payload && "error" in payload
           ? String((payload as { error: unknown }).error)
-          : `Request failed (${response.status})`;
+          : undefined;
+      const message =
+        serverError ??
+        STATUS_MESSAGES[response.status] ??
+        `Request failed (${response.status})`;
       throw new ApiError(message);
     }
 
