@@ -62,6 +62,20 @@ holdingTotal who = do
   hs <- query @Holding who
   pure (foldl (\a (_, h) -> if h.owner == who then a + h.amount else a) 0.0 hs)
 
+-- Build an accepted Loan (bids A@3% + B@5%, tier-matched CreditScore, oracle bound).
+acceptedLoan : Parties -> Numeric 10 -> Tier -> Numeric 10 -> Time -> Script (ContractId Loan, ContractId CreditScore)
+acceptedLoan p amount tier collAmt now = do
+  bidA <- mkBid p p.lenderA "A" 100.0 0.03 now
+  bidB <- mkBid p p.lenderB "B" 100.0 0.05 now
+  borrow <- mkBorrow p amount 0.06 tier collAmt now
+  cs0 <- submit p.operator do
+    createCmd CreditScore with operator = p.operator, borrower = p.borrower, tier, loansRepaid = 0, loansDefaulted = 0
+  round <- submit p.operator do createCmd MatchRound with operator = p.operator, auditor = p.auditor
+  [proposal] <- submit p.operator do
+    exerciseCmd round RunMatch with bidCids = [bidA, bidB], borrowCids = [borrow], creditScoreCids = [cs0], oracle = p.oracle
+  loan <- submitMulti [p.borrower] [p.operator] do exerciseCmd proposal Accept
+  pure (loan, cs0)
+
 testMatchAcceptVerifyGreen : Script ()
 testMatchAcceptVerifyGreen = do
   p <- setupParties
@@ -74,7 +88,7 @@ testMatchAcceptVerifyGreen = do
 
   round <- submit p.operator do createCmd MatchRound with operator = p.operator, auditor = p.auditor
   proposals <- submit p.operator do
-    exerciseCmd round RunMatch with bidCids = [bidA, bidB], borrowCids = [borrow], creditScoreCids = [cs0]
+    exerciseCmd round RunMatch with bidCids = [bidA, bidB], borrowCids = [borrow], creditScoreCids = [cs0], oracle = p.oracle
   let [proposal] = proposals
 
   -- auditor verifies BEFORE accept (bids still active) -> GREEN
@@ -131,6 +145,7 @@ testCorruptMatchVerifyRed = do
       collateralCid = dummyColl
       collateralAmount = 300.0
       requiredCollateral = 150.0
+      oracle = p.oracle
       instrument = "USD"
       maturity = addRelTime now (days 30)
 
@@ -148,7 +163,7 @@ testRejectSlash = do
   cs0 <- submit p.operator do
     createCmd CreditScore with operator = p.operator, borrower = p.borrower, tier = Bronze, loansRepaid = 0, loansDefaulted = 0
   round <- submit p.operator do createCmd MatchRound with operator = p.operator, auditor = p.auditor
-  [proposal] <- submit p.operator do exerciseCmd round RunMatch with bidCids = [bidA], borrowCids = [borrow], creditScoreCids = [cs0]
+  [proposal] <- submit p.operator do exerciseCmd round RunMatch with bidCids = [bidA], borrowCids = [borrow], creditScoreCids = [cs0], oracle = p.oracle
   -- borrower rejects -> 5% of 200 collateral (=10) slashed to operator, 190 back
   submitMulti [p.borrower] [p.operator] do exerciseCmd proposal Reject
   opGot <- holdingTotal p.operator
@@ -168,7 +183,7 @@ testLiquidate = do
 
   round <- submit p.operator do createCmd MatchRound with operator = p.operator, auditor = p.auditor
   [proposal] <- submit p.operator do
-    exerciseCmd round RunMatch with bidCids = [bidA, bidB], borrowCids = [borrow], creditScoreCids = [cs0]
+    exerciseCmd round RunMatch with bidCids = [bidA, bidB], borrowCids = [borrow], creditScoreCids = [cs0], oracle = p.oracle
   loan <- submitMulti [p.borrower] [p.operator] do exerciseCmd proposal Accept
 
   -- price drop: health = 300 * 0.5 / 150 = 1.0 < 1.5 -> liquidatable
@@ -184,3 +199,36 @@ testLiquidate = do
   -- credit tier downgraded Silver -> Bronze
   [(_, cs2)] <- query @CreditScore p.borrower
   cs2.tier === Bronze
+
+-- C4 regression: Liquidate rejects a price signed by any party other than the loan's
+-- bound oracle (a puppet-oracle can no longer seize a healthy loan).
+testPuppetOracleRejected : Script ()
+testPuppetOracleRejected = do
+  p <- setupParties
+  puppet <- allocateParty "Puppet"
+  now <- getTime
+  (loan, cs0) <- acceptedLoan p 100.0 Bronze 300.0 now
+  -- puppet forges a crash price; it is NOT p.oracle, so Liquidate must reject it
+  fake <- submit puppet do
+    createCmd PriceUpdate with oracle = puppet, operator = p.operator, instrument = "USD", price = 0.0001, asOf = now
+  submitMustFail p.operator do
+    exerciseCmd loan Liquidate with priceCid = fake, creditScoreCid = cs0
+
+-- H3 regression: a MATURED but HEALTHY loan is not fully seized — lenders get exactly what
+-- they are owed and the borrower gets the surplus back.
+testMaturedHealthyLiquidate : Script ()
+testMaturedHealthyLiquidate = do
+  p <- setupParties
+  now <- getTime
+  (loan, cs0) <- acceptedLoan p 100.0 Bronze 300.0 now   -- principal 100 (bidA), collateral 300
+  passTime (days 31)                                     -- past maturity
+  now2 <- getTime
+  price <- submit p.oracle do
+    createCmd PriceUpdate with oracle = p.oracle, operator = p.operator, instrument = "USD", price = 1.0, asOf = now2
+  submit p.operator do exerciseCmd loan Liquidate with priceCid = price, creditScoreCid = cs0
+  -- lender A owed 100 + 3% = 103 from collateral; borrower keeps the 100 principal it drew
+  -- plus the 300-103 = 197 collateral surplus -> 297 total. Lender B was never matched.
+  aGot <- holdingTotal p.lenderA
+  borGot <- holdingTotal p.borrower
+  aGot === 103.0
+  borGot === 297.0

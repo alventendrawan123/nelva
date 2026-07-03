@@ -104,6 +104,7 @@ template MatchProposal
     collateralCid : ContractId Holding
     collateralAmount : Numeric 10
     requiredCollateral : Numeric 10
+    oracle : Party                          -- trusted price oracle bound at match time (Liquidate/ClaimExcess check it)
     instrument : Text
     maturity : Time
   where
@@ -141,6 +142,7 @@ template MatchProposal
           collateralCid = escrow
           collateralAmount
           requiredCollateral
+          oracle
           instrument
           maturity
 
@@ -180,6 +182,7 @@ template Loan
     collateralCid : ContractId Holding
     collateralAmount : Numeric 10
     requiredCollateral : Numeric 10
+    oracle : Party                          -- trusted price oracle (Liquidate/ClaimExcess reject prices from any other signer)
     instrument : Text
     maturity : Time
   where
@@ -195,6 +198,8 @@ template Loan
         creditScoreCid : ContractId CreditScore
       controller borrower
       do
+        cs <- fetch creditScoreCid
+        assertMsg "credit score not for this borrower/operator" (cs.borrower == borrower && cs.operator == operator)
         _ <- payLenders (Some repaymentCid) ticks
         _ <- exercise collateralCid Transfer with newOwner = borrower
         _ <- exercise creditScoreCid BumpUp
@@ -209,10 +214,21 @@ template Loan
     -- authority. Re-create the Loan with the remaining escrow (ensure still holds at
     -- equality).
     choice ClaimExcess : ContractId Loan
+      with priceCid : ContractId PriceUpdate
       controller borrower
       do
+        pu <- fetch priceCid
+        now <- getTime
+        assertMsg "wrong instrument" (pu.instrument == instrument)
+        assertMsg "untrusted oracle" (pu.oracle == oracle)
+        assertMsg "stale price" (pu.asOf > addRelTime now (hours (-24)))
         let excess = collateralAmount - requiredCollateral
         assertMsg "no excess collateral to claim" (excess > 0.0)
+        -- Only allow the withdrawal if the position stays HEALTHY afterwards at the current
+        -- price. Otherwise a borrower whose collateral has fallen in value could strip the
+        -- nominal 'excess' just before Liquidate and leave lenders under-recovered.
+        let healthAfter = (requiredCollateral * pu.price) / principal
+        assertMsg "withdrawal would leave the loan under-collateralized at current price" (healthAfter >= 1.5)
         (excessPiece, remOpt) <- exercise collateralCid Split with splitAmount = excess
         _ <- exercise excessPiece Transfer with newOwner = borrower
         newEscrow <- case remOpt of
@@ -232,17 +248,35 @@ template Loan
       do
         pu <- fetch priceCid
         now <- getTime
+        cs <- fetch creditScoreCid
         assertMsg "wrong instrument" (pu.instrument == instrument)
+        -- price must come from the oracle bound to THIS loan (blocks a puppet-oracle seizure)
+        assertMsg "untrusted oracle" (pu.oracle == oracle)
+        assertMsg "credit score not for this borrower/operator" (cs.borrower == borrower && cs.operator == operator)
         let matured = now > maturity
+            fresh = pu.asOf > addRelTime now (hours (-24))
             health = (collateralAmount * pu.price) / principal
-        -- Health-based liquidation must use a FRESH price so a stale low print can't be
-        -- replayed to seize a currently-healthy loan. The maturity path is price-independent.
-        assertMsg "loan still healthy or price stale" (matured || (health < 1.5 && pu.asOf > addRelTime now (hours (-24))))
-        let distributable = collateralAmount - (collateralAmount * 0.05)
-            shares = sharesWithDust distributable principal ticks
-        distribute collateralCid shares    -- leftover (the 5% fee) stays with operator
-        _ <- exercise creditScoreCid BumpDown
-        pure ()
+            -- genuine default: distressed AND provable with a fresh price
+            unhealthy = health < 1.5 && fresh
+        assertMsg "loan still healthy or price stale" (matured || unhealthy)
+        if unhealthy
+          then do
+            -- default: 5% fee kept by operator, 95% pro-rata to lenders by principal; tier down.
+            let distributable = collateralAmount - (collateralAmount * 0.05)
+                shares = sharesWithDust distributable principal ticks
+            distribute collateralCid shares
+            _ <- exercise creditScoreCid BumpDown
+            pure ()
+          else do
+            -- matured but HEALTHY (not a default): pay each lender exactly principal+interest
+            -- owed and return the surplus over-collateral to the borrower. No punitive full
+            -- seizure and no tier-down — the borrower was over-collateralized, just late.
+            let owed = foldl (\a t -> a + t.amount + t.amount * t.rate) 0.0 ticks
+                toLenders = min collateralAmount owed
+                surplus = collateralAmount - toLenders
+                shares = sharesByOwed toLenders ticks ++ [(borrower, surplus)]
+            distribute collateralCid shares
+            pure ()
 
 template MatchRound
   with
@@ -259,6 +293,7 @@ template MatchRound
         bidCids : [ContractId SealedBid]
         borrowCids : [ContractId BorrowIntent]
         creditScoreCids : [ContractId CreditScore]   -- operator-signed scores, to validate each borrow's tier
+        oracle : Party                               -- trusted price oracle, bound into each Loan for Liquidate/ClaimExcess
       controller operator
       do
         now <- getTime
@@ -306,6 +341,7 @@ template MatchRound
               collateralCid = bi.collateralCid
               collateralAmount = coll.amount
               requiredCollateral = reqColl
+              oracle
               instrument = bi.instrument
               maturity = addRelTime now (days 30))
           result.fills
@@ -382,6 +418,19 @@ sharesWithDust distributable totalPrincipal ticks =
   let raw = map (\t -> (t.lender, distributable * t.amount / totalPrincipal)) ticks
       summed = foldl (\acc (_, s) -> acc + s) 0.0 raw
       dust = distributable - summed
+  in case reverse raw of
+       ((p, s) :: rest) -> reverse ((p, s + dust) :: rest)
+       [] -> []
+
+-- Pro-rata shares of `total` by each tick's OWED amount (principal + interest), with any
+-- rounding dust assigned to the LAST recipient. Used on the matured-healthy Liquidate path.
+sharesByOwed : Numeric 10 -> [MatchedTick] -> [(Party, Numeric 10)]
+sharesByOwed total ticks =
+  let owedOf t = t.amount + t.amount * t.rate
+      totalOwed = foldl (\acc t -> acc + owedOf t) 0.0 ticks
+      raw = map (\t -> (t.lender, if totalOwed > 0.0 then total * owedOf t / totalOwed else 0.0)) ticks
+      summed = foldl (\acc (_, s) -> acc + s) 0.0 raw
+      dust = total - summed
   in case reverse raw of
        ((p, s) :: rest) -> reverse ((p, s + dust) :: rest)
        [] -> []

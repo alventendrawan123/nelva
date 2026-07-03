@@ -11,7 +11,7 @@ import { cheatMatch, type BidInput } from "./match.js";
 
 const BASE = process.env.JSON_LEDGER_API ?? "http://localhost:7575";
 // package id of the deployed DAR — UPDATE on every SC rebuild (dpm damlc inspect-dar --json)
-const PKG = process.env.NELVA_PACKAGE_ID ?? "15f0d840a7f8235b13a619fa3fdcf91ad8796fbcfec0fdaa6870ec37150fd4b8";
+const PKG = process.env.NELVA_PACKAGE_ID ?? "4e693a56d00cc5774b07dfb69880305cff8a877d2a1aef9126350f489c6c8a8a";
 const USER = process.env.LEDGER_USER_ID ?? "nelva-be";
 const DEADLINE = "2030-01-01T00:00:00Z"; // default far-future maturity for loans/seeds
 // A SealedBid's withdraw deadline = now + durationDays. Using the hardcoded far-future
@@ -211,6 +211,9 @@ export class CantonLedger implements Ledger {
     const op = await this.ensureParty("Operator");
     await Promise.all(["Custodian", "Auditor", "LenderA", "LenderB", "Borrower", "Oracle"].map((n) => this.ensureParty(n)));
     if ((await this.acsAs(op, "Lending:SealedBid")).length > 0) return; // already seeded
+    // seed a USD oracle price so liquidate/claim-excess (which now require a fresh, oracle-
+    // bound price for their health checks) work without a manual admin/price call.
+    await this.setPrice("USD", 1.0);
     await this.createBid("LenderA", { amount: 100, rate: 0.03 });
     await this.createBid("LenderB", { amount: 100, rate: 0.05 });
     await this.createBorrow("Borrower", { amount: 150, maxRate: 0.06, collateralAmount: 300 });
@@ -329,8 +332,9 @@ export class CantonLedger implements Ledger {
       // RunMatch now validates each borrow's declared tier against an operator-signed
       // CreditScore; pass all known scores so honest borrows (tier == score) match.
       const scores = await this.acsAs(op, "Credit:CreditScore");
+      const oracle = await this.ensureParty("Oracle");
       const rnd = this.made(await this.create([op], "Settlement:MatchRound", { operator: op, auditor: aud }), "Settlement:MatchRound");
-      const tree = await this.exercise([op], "Settlement:MatchRound", rnd.cid, "RunMatch", { bidCids: freeBids.map((b) => b.cid), borrowCids: freeBorrows.map((b) => b.cid), creditScoreCids: scores.map((s) => s.cid) });
+      const tree = await this.exercise([op], "Settlement:MatchRound", rnd.cid, "RunMatch", { bidCids: freeBids.map((b) => b.cid), borrowCids: freeBorrows.map((b) => b.cid), creditScoreCids: scores.map((s) => s.cid), oracle });
       return this.allMade(tree, "Settlement:MatchProposal").map((x) => this.propDto(x));
     } finally {
       this._matching = false;
@@ -340,6 +344,7 @@ export class CantonLedger implements Ledger {
     const op = await this.ensureParty("Operator");
     const aud = await this.ensureParty("Auditor");
     const cust = await this.ensureParty("Custodian");
+    const oracle = await this.ensureParty("Oracle");
     const bids = await this.acsAs(op, "Lending:SealedBid");
     const borrows = await this.acsAs(op, "Lending:BorrowIntent");
     if (!bids.length || !borrows.length) return [];
@@ -362,7 +367,7 @@ export class CantonLedger implements Ledger {
       matchedTicks: ticks, inputBidCids: bids.map((x) => x.cid),
       roundBorrows: [{ borrowId: ba.borrowId, borrower: ba.borrower, amount: String(ba.amount), maxRate: String(ba.maxRate) }],
       borrowCid: b.cid,
-      collateralCid: dummy.cid, collateralAmount: "1.0", requiredCollateral: "0.0", instrument: "USD", maturity: DEADLINE,
+      collateralCid: dummy.cid, collateralAmount: "1.0", requiredCollateral: "0.0", oracle, instrument: "USD", maturity: DEADLINE,
     });
     return [this.propDto(this.made(tree, "Settlement:MatchProposal"))];
   }
@@ -637,9 +642,13 @@ export class CantonLedger implements Ledger {
     const requiredCollateral = Number(loan.arg.requiredCollateral);
     const excess = collateralAmount - requiredCollateral;
     if (!(excess > 0)) throw new Error("no excess collateral to claim");
+    // ClaimExcess now requires a fresh, oracle-bound price and re-checks post-withdrawal
+    // health, so a borrower can't strip collateral just before liquidation.
+    const inst = loan.arg.instrument ?? "USD";
+    const price = await this.latestPrice(inst);
     // ClaimExcess (controller=borrower) Splits+Transfers the OPERATOR-owned escrow;
-    // readAs=[op] so the borrower's submission can resolve loan.collateralCid (as accept/repay do).
-    const tree = await this.exercise([bor], "Settlement:Loan", loanId, "ClaimExcess", {}, [op]);
+    // readAs=[op] so the borrower's submission can resolve loan.collateralCid + the price (as accept/repay do).
+    const tree = await this.exercise([bor], "Settlement:Loan", loanId, "ClaimExcess", { priceCid: price.cid }, [op]);
     const newLoan = this.loanDto(this.made(tree, "Settlement:Loan"));
     return { loanId: newLoan.loanId, excessReturned: excess, remainingCollateral: requiredCollateral };
   }
