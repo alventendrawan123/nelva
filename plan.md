@@ -186,6 +186,31 @@ Perubahan **C, D** karena fix privasi per-lender: tiap lender cuma bisa lihat po
 
 **Tujuan:** pastikan flow inti (`LendPanel`, `BorrowPanel`, `StatusPanel`) jalan end-to-end lawan BE live. Kode sudah ada (`usePlaceBid`, `useBorrow`, `useStatus`) — ini **verifikasi**, bukan nulis dari nol.
 
+### Target UI (wireframe)
+
+```
+┌─ Nelva ───────────────────────────── [Connect: LenderA ▾] ─ [balance] ─┐
+│   Sealed-bid P2P lending on Canton                                      │
+│   🔒 Rate kamu ter-seal. Lender lain tak lihat. Privasi native, no TEE. │
+│                                                                         │
+│   ┌─ [·Lend·] [ Borrow ] ───────────────┐   ┌─ Market status ────────┐  │
+│   │  Amount (USD)   [ 100        ]       │   │ Open bids       3      │  │
+│   │  Your rate (%)  [ 4.0        ]       │   │ Active loans    4      │  │
+│   │  🔒 sealed — only you + operator     │   │ Proposals       1      │  │
+│   │  [    Place sealed bid    ]          │   │ Last match   12:04     │  │
+│   └──────────────────────────────────────┘   └────────────────────────┘  │
+│                                                                         │
+│   ── Borrow tab ──                                                      │
+│   ┌─ [ Lend ] [·Borrow·] ───────────────────────────────┐              │
+│   │  Amount 150 · Max rate 6.0% · Collateral [ 300 ]     │              │
+│   │  ┌────────────────────────────────────────────────┐ │              │
+│   │  │ Required: 300 USD (Bronze 2×)      ✓ cukup      │ │ ←/collateral-│
+│   │  └────────────────────────────────────────────────┘ │   quote (4.5)│
+│   │  [   Submit borrow intent   ]                        │              │
+│   └───────────────────────────────────────────────────────┘            │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
 ### Tasks
 
 - [ ] **Connect / pilih party** (persona) via `PartyContext` — pastikan `party` ke-set sebelum aksi. Tanpa party, mutation kirim `Bearer ""` → 401.
@@ -214,6 +239,27 @@ Perubahan **C, D** karena fix privasi per-lender: tiap lender cuma bisa lihat po
 
 **Tujuan:** lifecycle penuh loan. Hook sudah ada (`useProposals`, `useAccept`, `useReject`, `useRepay`, `useRunMatch`). Auto-matcher backend jalan tiap 20s, tapi ada tombol dev `run-match` (Operator) untuk demo deterministik.
 
+### Target UI (wireframe)
+
+```
+┌─ Your proposals (party = Borrower) ────────────────────────────┐
+│ ● PENDING   principal 150   blended 3.67%   Bronze            │
+│   ticks:  LenderA 100 @3.0%    LenderB 50 @5.0%               │
+│   [  Accept  ]     [  Reject  (−5% collateral penalty)  ]     │
+└────────────────────────────────────────────────────────────────┘
+        │ accept
+        ▼
+┌─ Your loans (party = Borrower) ────────────────────────────────┐
+│ ● ACTIVE   principal 150   maturity 2026-08-02               │
+│   [  Repay  ]     [  Claim excess  ]                          │
+│ ● REPAID   …   → tier Bronze → Silver ✓                       │
+└────────────────────────────────────────────────────────────────┘
+
+flow:  bid + bid + borrow ─▶ run-match ─▶ PENDING proposal
+       ─▶ accept ─▶ ACTIVE loan ─▶ repay ─▶ REPAID + tier↑
+       (reject ─▶ collateral 95% balik, 5% ke operator)
+```
+
 ### Tasks
 
 - [ ] **Trigger match** — auto (tunggu ≤20s) atau tombol `useRunMatch` (butuh party Operator). Untuk demo, tombol lebih enak (langsung).
@@ -241,6 +287,35 @@ Perubahan **C, D** karena fix privasi per-lender: tiap lender cuma bisa lihat po
 ## 6. Phase 4.4 — Lens hero + Audit (verify/badges)
 
 **Tujuan:** ini **hero/pitch**. Lens = demo privasi (siapa lihat apa). Audit = diferensiator (auditor re-run match → GREEN/RED). Komponen `LensPanel` sudah ada — sesuaikan ke schema baru (4.1).
+
+### Target UI (wireframe) — ini momen menang demo
+
+```
+┌─ The Lens — "siapa lihat apa"  (privasi native Canton, bukan enkripsi) ──┐
+│  Proposal P-borrow…  ·  principal 150  ·  blended 3.67%                   │
+│                                                                          │
+│ ┌ OPERATOR ─────┐ ┌ LENDER A ─────┐ ┌ BORROWER ─────┐ ┌ AUDITOR ──────┐ │
+│ │ sees ALL bids │ │ sees OWN bid  │ │ sees proposal │ │ all bids +    │ │
+│ │  A 100 @3.0%  │ │  A 100 @3.0%  │ │  blended 3.67%│ │  verdict      │ │
+│ │  B 100 @5.0%  │ │  ▓▓ B hidden ▓│ │  ticks A + B  │ │  🟢 GREEN     │ │
+│ │  + proposal   │ │               │ │               │ │               │ │
+│ └───────────────┘ └───────────────┘ └───────────────┘ └───────────────┘ │
+│ ┌ OUTSIDER (no login) ─────────────────────────────────────────────────┐│
+│ │ hanya agregat: openBids 3 · activeLoans 4 · ⛔ NO rate · ⛔ NO identity ││
+│ └───────────────────────────────────────────────────────────────────────┘│
+│  →  operator lihat SEMUA rate  ·  lender cuma 1  ·  outsider NOL          │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ Auditor — re-run match (the differentiator) ──────────────┐
+│  Proposal P-…            [ Verify ]                         │
+│  Badges:                                                    │
+│   🟢 GREEN  P-borrow…   "recomputed == published"          │
+│   🔴 RED    P-CHEAT     "a cheaper lend was skipped"        │
+│  [ Cheat-match (demo) ]  → proposal curang → Verify → RED   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+> Panggil `useLens` sebagai **Operator** supaya kelima panel terisi (aman: anonim tetap outsider-only). Tunjuk kontras "operator semua rate / lender satu / outsider nol" — **itu pitch privasi-nya.**
 
 ### Tasks
 
@@ -274,6 +349,24 @@ Perubahan **C, D** karena fix privasi per-lender: tiap lender cuma bisa lihat po
 ## 7. Phase 4.5 — Dashboard lender + collateral-quote + wallet path
 
 **Tujuan:** lengkapi view lender (yang berubah karena privasi) + polish input borrow + (opsional) real wallet.
+
+### Target UI (wireframe)
+
+```
+┌─ Profile: LenderA ─────────────────────────────────────────┐
+│ Tier Bronze (2×)  ·  repaid 0  ·  defaulted 0              │ ← /credit-score
+│                                                            │
+│ Active positions  (from /lender-status — PRIVATE):         │
+│  ┌──────────────────────────────────────────────────────┐ │
+│  │ borrower Borrower  ·  my rate 3.0%  ·  owed 103.0     │ │
+│  │ maturity 2026-08-02                                   │ │
+│  └──────────────────────────────────────────────────────┘ │
+│  ⚠ LenderB's 5.0% rate is NOT shown here (privacy proof)  │
+└────────────────────────────────────────────────────────────┘
+
+LenderA screen: my rate 3.0% only    LenderB screen: my rate 5.0% only
+                (tak lihat 5.0%)                     (tak lihat 3.0%)
+```
 
 ### Tasks
 
