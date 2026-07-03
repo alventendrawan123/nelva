@@ -277,15 +277,19 @@ app.get("/api/lens", h(async (req, res) => {
 app.get("/api/status", h(async (_req, res) => res.json(await ledger.status())));
 app.get("/api/health", (_req, res) => res.json({ ok: true, mode: LEDGER_MODE }));
 
-ledger.seed()
-  .then(() => {
-    app.listen(PORT, () => console.log(`Nelva BE (${LEDGER_MODE}) on http://localhost:${PORT}  — seeded. GET /api/status`));
-    // Auto-matching engine: periodically run the operator match so wallet users'
-    // bids/borrows settle on their own (like a scheduled matcher). runMatch throws
-    // when there's nothing to pair — ignore. Canton mode only.
-    if (LEDGER_MODE === "canton") {
-      setInterval(() => { ledger.runMatch().catch(() => {}); }, 20000);
-      setInterval(() => { ledger.expireProposals().catch(() => {}); }, 20000);
-    }
-  })
-  .catch((e) => { console.error("seed failed:", e); process.exit(1); });
+// Listen FIRST so /api/health goes green immediately (a slow/failing seed must not
+// crashloop the container behind a platform healthcheck). Seed + the auto-matcher run
+// after the port is open; a seed failure is logged, not fatal.
+app.listen(PORT, () => {
+  console.log(`Nelva BE (${LEDGER_MODE}) on http://localhost:${PORT}  — GET /api/status`);
+  ledger.seed()
+    .then(() => console.log("seeded."))
+    .catch((e) => console.error("seed failed (continuing, /api/health still up):", e?.message ?? e));
+  // Auto-matching engine: periodically run the operator match so wallet users'
+  // bids/borrows settle on their own (like a scheduled matcher). runMatch throws
+  // when there's nothing to pair — ignore. Canton mode only.
+  if (LEDGER_MODE === "canton") {
+    setInterval(() => { ledger.runMatch().catch(() => {}); }, 20000);
+    setInterval(() => { ledger.expireProposals().catch(() => {}); }, 20000);
+  }
+});

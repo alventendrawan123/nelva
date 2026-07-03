@@ -190,7 +190,9 @@ export class CantonLedger implements Ledger {
       const op = await this.ensureParty("Operator");
       const existing = (await this.acsAs(op, "Credit:CreditScore")).find((x) => x.arg.borrower === borrowerPid);
       if (existing) return existing.cid;
-      const tree = await this.create([op], "Credit:CreditScore", { operator: op, borrower: borrowerPid, tier: "Bronze", loansRepaid: 0, loansDefaulted: 0 });
+      // Int64 fields must be JSON strings in the v2 Ledger API (like Numeric) — sending
+      // raw numbers is rejected by stricter Canton builds ("Expected ujson.Str").
+      const tree = await this.create([op], "Credit:CreditScore", { operator: op, borrower: borrowerPid, tier: "Bronze", loansRepaid: "0", loansDefaulted: "0" });
       return this.made(tree, "Credit:CreditScore").cid;
     })();
     this._csLocks.set(borrowerPid, job);
