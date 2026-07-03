@@ -99,6 +99,24 @@ export function useLenderStatus() {
   });
 }
 
+export function useCreditScore() {
+  const { party } = useParty();
+  return useQuery({
+    queryKey: ["credit-score", party],
+    queryFn: () => api.creditScore(party ?? ""),
+    enabled: Boolean(party),
+  });
+}
+
+export function useCollateralQuote(amount: number) {
+  const { party } = useParty();
+  return useQuery({
+    queryKey: ["collateral-quote", party, amount],
+    queryFn: () => api.collateralQuote(party ?? "", amount),
+    enabled: Boolean(party) && amount > 0,
+  });
+}
+
 function useInvalidateMarket() {
   const queryClient = useQueryClient();
   return () => {

@@ -2,16 +2,23 @@
 
 import { Copy, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
-import { useProfile } from "@/lib/api/hooks";
+import { useCreditScore, useProfile } from "@/lib/api/hooks";
 
 export function ProfileHeader() {
   const profile = useProfile();
+  const credit = useCreditScore();
+
+  const tier = credit.data?.tier ?? profile.tier;
+  const repScore = credit.data?.loansRepaid ?? profile.repScore;
+  const collateralMultiplier = credit.data
+    ? `${credit.data.collateralMultiplier}x`
+    : profile.collateralMultiplier;
 
   return (
     <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
       <div className="flex items-start gap-4">
         <span className="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-lg font-bold text-primary-foreground">
-          {profile.tier.charAt(0)}
+          {tier.charAt(0)}
         </span>
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -19,7 +26,7 @@ export function ProfileHeader() {
               {profile.address}
             </h1>
             <Badge tone="neutral">Canton</Badge>
-            <Badge tone="warning">{profile.tier}</Badge>
+            <Badge tone="warning">{tier}</Badge>
           </div>
           <div className="mt-2 flex items-center gap-4 text-sm text-muted">
             <button
@@ -45,13 +52,11 @@ export function ProfileHeader() {
           <p className="text-xs uppercase tracking-wide text-muted">
             Rep Score
           </p>
-          <p className="text-3xl font-bold text-foreground">
-            {profile.repScore}
-          </p>
+          <p className="text-3xl font-bold text-foreground">{repScore}</p>
         </div>
         <div className="w-40">
           <p className="text-sm font-semibold text-warning">
-            {profile.collateralMultiplier} Collateral
+            {collateralMultiplier} Collateral
           </p>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
             <div className="h-full w-0 rounded-full bg-accent" />

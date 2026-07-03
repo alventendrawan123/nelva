@@ -11,6 +11,7 @@ import { TokenChip } from "@/components/ui/TokenChip";
 import {
   useAccept,
   useBorrow,
+  useCollateralQuote,
   useLoans,
   useProposals,
   useReject,
@@ -27,6 +28,7 @@ export function BorrowPanel() {
   const [maxRatePercent, setMaxRatePercent] = useState("6");
 
   const borrow = useBorrow();
+  const quote = useCollateralQuote(Number(amount));
   const proposals = useProposals();
   const loans = useLoans();
   const accept = useAccept();
@@ -68,6 +70,25 @@ export function BorrowPanel() {
           inputMode="decimal"
           suffix={<TokenChip symbol={COLLATERAL.symbol} showChevron={false} />}
         />
+        {quote.data ? (
+          <div
+            className={`flex items-center justify-between rounded-2xl px-4 py-3 text-sm ${
+              Number(collateral) >= quote.data.requiredCollateral
+                ? "bg-success/10 text-success"
+                : "bg-warning/10 text-warning"
+            }`}
+          >
+            <span>
+              Required: {formatAmount(quote.data.requiredCollateral)} (
+              {quote.data.tier} {quote.data.multiplier}x)
+            </span>
+            <span className="font-semibold">
+              {Number(collateral) >= quote.data.requiredCollateral
+                ? "Enough"
+                : "Not enough"}
+            </span>
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-4">
           <AmountField
             id="borrow-max-rate"

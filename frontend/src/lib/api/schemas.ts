@@ -150,6 +150,24 @@ export const meSchema = z.object({
   partyId: z.string().nullable(),
 });
 
+export const creditScoreSchema = z.object({
+  tier: tierSchema,
+  loansRepaid: z.number(),
+  loansDefaulted: z.number(),
+  collateralMultiplier: z.number(),
+});
+
+export const collateralQuoteSchema = z.object({
+  party: z.string(),
+  instrument: z.string(),
+  amount: z.number(),
+  tier: tierSchema,
+  multiplier: z.number(),
+  price: z.number().nullable(),
+  priceKnown: z.boolean(),
+  requiredCollateral: z.number(),
+});
+
 export type Tier = z.infer<typeof tierSchema>;
 export type Bid = z.infer<typeof bidSchema>;
 export type BorrowIntent = z.infer<typeof borrowIntentSchema>;
@@ -163,3 +181,5 @@ export type Holding = z.infer<typeof holdingSchema>;
 export type Me = z.infer<typeof meSchema>;
 export type LenderPosition = z.infer<typeof lenderPositionSchema>;
 export type LenderStatus = z.infer<typeof lenderStatusSchema>;
+export type CreditScore = z.infer<typeof creditScoreSchema>;
+export type CollateralQuote = z.infer<typeof collateralQuoteSchema>;

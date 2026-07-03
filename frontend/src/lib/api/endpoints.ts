@@ -6,6 +6,10 @@ import {
   type BorrowIntent,
   bidSchema,
   borrowIntentSchema,
+  type CollateralQuote,
+  type CreditScore,
+  collateralQuoteSchema,
+  creditScoreSchema,
   type Holding,
   holdingSchema,
   type LenderStatus,
@@ -115,6 +119,16 @@ export const api = {
       party,
       schema: lenderStatusSchema,
     }),
+  creditScore: (party: string) =>
+    call<CreditScore>(`/credit-score/${party}`, {
+      party,
+      schema: creditScoreSchema,
+    }),
+  collateralQuote: (party: string, amount: number) =>
+    call<CollateralQuote>(
+      `/collateral-quote?party=${party}&amount=${amount}&instrument=USD`,
+      { party, schema: collateralQuoteSchema },
+    ),
 
   lens: (proposalId: string, viewer: string = OPERATOR) =>
     call<LensView>(`/lens?proposalId=${proposalId}`, {
