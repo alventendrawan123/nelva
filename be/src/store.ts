@@ -26,7 +26,7 @@ interface State {
 }
 export const db: State = { bids: [], borrows: [], proposals: [], loans: [], badges: [], prices: [], tiers: {} };
 
-const tierOf = (borrower: string): Tier => db.tiers[borrower] ?? "Bronze";
+export const tierOf = (borrower: string): Tier => db.tiers[borrower] ?? "Bronze";
 const toBidInput = (b: Bid): BidInput => ({ bidId: b.bidId, lender: b.lender, amount: b.amount, rate: b.rate });
 const toBorrowInput = (b: BorrowIntent): BorrowInput => ({ borrowId: b.borrowId, borrower: b.borrower, amount: b.amount, maxRate: b.maxRate });
 
@@ -39,6 +39,11 @@ export function createBid(lender: string, amount: number, rate: number, instrume
 export function withdrawBid(bidId: string, lender: string): Bid {
   const bid = db.bids.find((b) => b.bidId === bidId && b.lender === lender);
   if (!bid) throw new Error("bid not found");
+  // parity with Daml WithdrawBid: only an OPEN bid, only after its deadline, and never
+  // one committed to a PENDING proposal (else accept could still fund a "withdrawn" bid).
+  if (bid.status !== "OPEN") throw new Error("bid not open");
+  if (new Date() <= new Date(bid.deadline)) throw new Error("bid not yet expired");
+  if (db.proposals.some((p) => p.status === "PENDING" && p.ticks.some((t) => t.bidId === bidId))) throw new Error("bid committed to a pending proposal");
   bid.status = "WITHDRAWN";
   return bid;
 }
@@ -54,8 +59,12 @@ export function createBorrow(borrower: string, amount: number, maxRate: number, 
 }
 
 function publish(useCheat: boolean): MatchProposal[] {
-  const openBids = db.bids.filter((b) => b.status === "OPEN");
-  const openBorrows = db.borrows.filter((b) => b.status === "OPEN");
+  // Skip bids/borrows already committed to a PENDING proposal (parity with the canton
+  // matcher). Without this a second run-match duplicates proposals over the same book.
+  const pendingBidIds = new Set(db.proposals.filter((p) => p.status === "PENDING").flatMap((p) => p.ticks.map((t) => t.bidId)));
+  const pendingBorrowIds = new Set(db.proposals.filter((p) => p.status === "PENDING").map((p) => p.borrowId));
+  const openBids = db.bids.filter((b) => b.status === "OPEN" && !pendingBidIds.has(b.bidId));
+  const openBorrows = db.borrows.filter((b) => b.status === "OPEN" && !pendingBorrowIds.has(b.borrowId));
   const inputIds = openBids.map((b) => b.bidId);
   const fills = (useCheat ? cheatMatch : runDeterministicMatch)(openBids.map(toBidInput), openBorrows.map(toBorrowInput));
   const created: MatchProposal[] = [];
@@ -91,6 +100,11 @@ export function accept(proposalId: string): Loan {
   if (!p) throw new Error("proposal not found");
   if (p.status !== "PENDING") throw new Error("proposal not pending");
   const borrow = db.borrows.find((b) => b.borrowId === p.borrowId)!;
+  // parity with canton (Accept consumes the intent + bids): reject a second accept over an
+  // already-matched borrow or a bid that's no longer OPEN, else a duplicate proposal could
+  // create a second loan against the same collateral/bids.
+  if (borrow.status !== "OPEN") throw new Error("borrow already matched");
+  if (p.ticks.some((t) => { const bid = db.bids.find((b) => b.bidId === t.bidId); return !bid || bid.status !== "OPEN"; })) throw new Error("a matched bid is no longer open");
   if (borrow.collateralAmount < borrow.requiredCollateral) throw new Error("under-collateralized");
   const loan: Loan = {
     loanId: id("L"), borrower: p.borrower, principal: p.principal, blendedRate: p.blendedRate,
@@ -171,7 +185,9 @@ export function status() {
   return {
     openBids: db.bids.filter((b) => b.status === "OPEN").length,
     activeLoans: db.loans.filter((l) => l.status === "ACTIVE").length,
-    proposals: db.proposals.length,
+    // count only live (PENDING) proposals — parity with canton, where Accept/Reject archive
+    // the contract so terminal proposals don't linger in the ACS.
+    proposals: db.proposals.filter((p) => p.status === "PENDING").length,
     lastMatchAt: db.proposals.length ? nowIso() : null,
   };
 }

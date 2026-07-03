@@ -2,7 +2,7 @@
 // in the list* methods (mimicking Canton's per-party projection).
 import type { Ledger } from "./ledger.js";
 import { roleOf, TIER_MULTIPLIER } from "./types.js";
-import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, HoldingView, Tier } from "./types.js";
+import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, HoldingView } from "./types.js";
 import * as S from "./store.js";
 
 export class MockLedger implements Ledger {
@@ -31,18 +31,34 @@ export class MockLedger implements Ledger {
   async listProposals(viewer?: string): Promise<MatchProposal[]> {
     const r = roleOf(viewer);
     if (r === "operator" || r === "auditor") return S.db.proposals;
-    // borrower sees own; matched lenders see proposals they're in (parity with Canton observers)
-    return S.db.proposals.filter((p) => p.borrower === viewer || p.ticks.some((t) => t.lender === viewer));
+    // borrower sees own only. Lenders are NOT proposal observers (parity with the Daml
+    // change that stopped leaking rival ticks to co-matched lenders at proposal stage).
+    return S.db.proposals.filter((p) => p.borrower === viewer);
   }
-  async accept(_party: string, proposalId: string): Promise<Loan> { return S.accept(proposalId); }
-  async reject(_party: string, proposalId: string) { return S.reject(proposalId); }
+  async accept(party: string, proposalId: string): Promise<Loan> {
+    const p = S.db.proposals.find((x) => x.proposalId === proposalId);
+    if (!p) throw new Error("proposal not found");
+    if (p.borrower !== party) { const e: any = new Error("forbidden: not your proposal"); e.status = 403; throw e; }
+    return S.accept(proposalId);
+  }
+  async reject(party: string, proposalId: string) {
+    const p = S.db.proposals.find((x) => x.proposalId === proposalId);
+    if (!p) throw new Error("proposal not found");
+    if (p.borrower !== party) { const e: any = new Error("forbidden: not your proposal"); e.status = 403; throw e; }
+    return S.reject(proposalId);
+  }
   async listLoans(viewer?: string): Promise<Loan[]> {
     const r = roleOf(viewer);
     if (r === "operator" || r === "auditor") return S.db.loans;
     if (r === "lender") return S.db.loans.filter((l) => l.ticks.some((t) => t.lender === viewer));
     return S.db.loans.filter((l) => l.borrower === viewer);
   }
-  async repay(_party: string, loanId: string) { return S.repay(loanId); }
+  async repay(party: string, loanId: string) {
+    const l = S.db.loans.find((x) => x.loanId === loanId);
+    if (!l) throw new Error("loan not found");
+    if (l.borrower !== party) { const e: any = new Error("forbidden: not your loan"); e.status = 403; throw e; }
+    return S.repay(loanId);
+  }
 
   async runMatch() { return S.runMatch(); }
   async runCheatMatch() { return S.runCheatMatch(); }
@@ -53,7 +69,20 @@ export class MockLedger implements Ledger {
   async verify(auditor: string, proposalId: string): Promise<AuditBadge> { return S.verify(auditor, proposalId); }
   async listBadges(): Promise<AuditBadge[]> { return S.db.badges; }
 
-  async lens(proposalId: string) { return S.lens(proposalId); }
+  async lens(proposalId: string, viewer?: string, role?: import("./types.js").Role) {
+    // scope perspectives to the caller (parity with canton). Only operator/auditor get the
+    // full multi-perspective teaching view; borrower sees own proposal; lender sees own
+    // bids; anonymous/outsider gets status only.
+    const full = S.lens(proposalId);
+    const perspectives: any = { outsider: full.perspectives.outsider };
+    if (role === "operator") perspectives.operator = full.perspectives.operator;
+    if (role === "auditor") perspectives.auditor = full.perspectives.auditor;
+    const isOwnerBorrower = viewer && full.perspectives.borrower.party === viewer;
+    if (isOwnerBorrower) perspectives.borrower = full.perspectives.borrower;
+    if (role === "lender" && viewer) perspectives.lender = { party: viewer, canSee: ["ownBid"], bids: S.db.bids.filter((b) => b.lender === viewer) };
+    const privileged = role === "operator" || role === "auditor";
+    return { subject: privileged || isOwnerBorrower ? full.subject : null, perspectives };
+  }
 
   async holdings(viewer?: string): Promise<HoldingView[]> {
     if (!viewer) return [];
@@ -124,11 +153,13 @@ export class MockLedger implements Ledger {
       pendingProposals: S.db.proposals.filter((p) => p.borrower === party && p.status === "PENDING"),
       activeLoans: S.db.loans.filter((l) => l.borrower === party && l.status === "ACTIVE"),
       completedLoans: [],
-      creditScore: { tier: "Bronze" as Tier, loansRepaid: 0, loansDefaulted: 0, collateralMultiplier: TIER_MULTIPLIER.Bronze },
+      creditScore: (() => { const tier = S.tierOf(party); return { tier, loansRepaid: 0, loansDefaulted: 0, collateralMultiplier: TIER_MULTIPLIER[tier] }; })(),
     };
   }
-  async creditScore(_party: string): Promise<any> {
-    return { tier: "Bronze" as Tier, loansRepaid: 0, loansDefaulted: 0, collateralMultiplier: TIER_MULTIPLIER.Bronze };
+  async creditScore(party: string): Promise<any> {
+    // read the mock's real tier source (db.tiers, updated by repay/liquidate) — not a constant.
+    const tier = S.tierOf(party);
+    return { tier, loansRepaid: 0, loansDefaulted: 0, collateralMultiplier: TIER_MULTIPLIER[tier] };
   }
   private _slots = new Map<string, { party: string; amount: number; instrument: string; durationDays: number; exp: number }>();
   async lendInit(party: string, p: { amount: number; instrument?: string; durationDays?: number }) {
@@ -144,28 +175,32 @@ export class MockLedger implements Ledger {
     return S.createBid(party, s.amount, rate, s.instrument, s.durationDays);
   }
   async collateralQuote(party: string, amount: number, instrument = "USD") {
-    const b = S.db.borrows.find((x) => x.borrower === party);
-    const tier = (b?.tier ?? "Bronze") as Tier; const multiplier = TIER_MULTIPLIER[tier];
+    const tier = S.tierOf(party); const multiplier = TIER_MULTIPLIER[tier];
     const price = S.db.prices.find((p) => p.instrument === instrument)?.price ?? null;
     const priceKnown = typeof price === "number" && price > 0;
     const requiredCollateral = priceKnown ? (amount * multiplier) / (price as number) : amount * multiplier;
     return { party, instrument, amount, tier, multiplier, price, priceKnown, requiredCollateral };
   }
   async expireProposals() { return { checked: S.db.proposals.length, expired: 0, stale: [], policy: "report", note: "mock: no expiry clock" }; }
-  async market(): Promise<{ instruments: { instrument: string; openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number; totalOpenBorrowVolume: number; avgLoanSize: number }[] }> {
-    type Agg = { openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number; totalOpenBorrowVolume: number; loanPrincipalSum: number };
+  async market(): Promise<{ instruments: { instrument: string; openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number | null; totalOpenBorrowVolume: number | null; avgLoanSize: number | null }[] }> {
+    type Agg = { openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number; totalOpenBorrowVolume: number; loanPrincipalSum: number; lenders: Set<string>; borrowers: Set<string> };
     const byInst = new Map<string, Agg>();
     const bucket = (inst?: string): Agg => {
       const key = inst || "USD";
       let a = byInst.get(key);
-      if (!a) { a = { openBids: 0, openBorrows: 0, activeLoans: 0, totalOpenLendVolume: 0, totalOpenBorrowVolume: 0, loanPrincipalSum: 0 }; byInst.set(key, a); }
+      if (!a) { a = { openBids: 0, openBorrows: 0, activeLoans: 0, totalOpenLendVolume: 0, totalOpenBorrowVolume: 0, loanPrincipalSum: 0, lenders: new Set(), borrowers: new Set() }; byInst.set(key, a); }
       return a;
     };
-    for (const b of S.db.bids) if (b.status === "OPEN") { const a = bucket(b.instrument); a.openBids++; a.totalOpenLendVolume += b.amount; }
-    for (const b of S.db.borrows) if (b.status === "OPEN") { const a = bucket(b.instrument); a.openBorrows++; a.totalOpenBorrowVolume += b.amount; }
+    for (const b of S.db.bids) if (b.status === "OPEN") { const a = bucket(b.instrument); a.openBids++; a.totalOpenLendVolume += b.amount; a.lenders.add(b.lender); }
+    for (const b of S.db.borrows) if (b.status === "OPEN") { const a = bucket(b.instrument); a.openBorrows++; a.totalOpenBorrowVolume += b.amount; a.borrowers.add(b.borrower); }
     for (const l of S.db.loans) if (l.status === "ACTIVE") { const a = bucket((l as any).instrument); a.activeLoans++; a.loanPrincipalSum += l.principal; }
+    // k-anonymity (k=2): don't publish a volume that reduces to a single participant's position.
+    const MIN_K = 2;
     const instruments = [...byInst.entries()]
-      .map(([instrument, a]) => ({ instrument, openBids: a.openBids, openBorrows: a.openBorrows, activeLoans: a.activeLoans, totalOpenLendVolume: a.totalOpenLendVolume, totalOpenBorrowVolume: a.totalOpenBorrowVolume, avgLoanSize: a.activeLoans ? a.loanPrincipalSum / a.activeLoans : 0 }))
+      .map(([instrument, a]) => ({ instrument, openBids: a.openBids, openBorrows: a.openBorrows, activeLoans: a.activeLoans,
+        totalOpenLendVolume: a.lenders.size >= MIN_K ? a.totalOpenLendVolume : null,
+        totalOpenBorrowVolume: a.borrowers.size >= MIN_K ? a.totalOpenBorrowVolume : null,
+        avgLoanSize: a.activeLoans >= MIN_K ? a.loanPrincipalSum / a.activeLoans : null }))
       .sort((x, y) => x.instrument.localeCompare(y.instrument));
     return { instruments };
   }

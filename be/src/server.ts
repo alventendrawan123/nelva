@@ -8,7 +8,10 @@ import { ledger, LEDGER_MODE } from "./ledger.js";
 
 const PORT = Number(process.env.PORT ?? 8090); // 8080 often taken (Apache/XAMPP)
 const app = express();
-app.set("trust proxy", 1); // behind Railway/Vercel proxy — resolve real client IP
+// trust proxy is deployment-specific: X-Forwarded-For is only trustworthy behind a
+// known number of proxies. Default to 0 (direct exposure) so req.ip is the real socket
+// peer and can't be spoofed; set TRUST_PROXY=1 (or n) when behind Railway/Vercel/etc.
+app.set("trust proxy", Number(process.env.TRUST_PROXY ?? 0));
 // CORS: lock to the FE origin(s) in prod via FE_ORIGIN (comma-separated). Unset = allow-all (local dev).
 const FE_ORIGIN = process.env.FE_ORIGIN;
 app.use(cors(FE_ORIGIN ? { origin: FE_ORIGIN.split(",").map((s) => s.trim()) } : {}));
@@ -33,9 +36,25 @@ function who(req: Request): { party?: string; role: ReturnType<typeof roleOf> } 
   const party = auth.startsWith("Bearer ") ? auth.slice(7).trim() : undefined;
   return { party: party || undefined, role: roleOf(party || undefined) };
 }
-// wrap an async handler -> 400 on error
+// Map a thrown error to an HTTP status + a SANITIZED body. Validation errors thrown by
+// the BE (with e.status or a plain message) surface as-is; raw ledger errors are
+// classified (not-found -> 409, authorization -> 403, connectivity/5xx -> 502) and their
+// internal ids (contractId/traceId/participant) are NOT echoed to the client.
+function classifyError(e: any): { status: number; body: any } {
+  if (e && typeof e.status === "number" && !e.ledger) return { status: e.status, body: { error: String(e.message ?? e) } };
+  const msg = String(e?.message ?? e);
+  const code = e?.code ?? (/"code":"([A-Z_]+)"/.exec(msg)?.[1]);
+  if (e?.ledger) {
+    if (code === "CONTRACT_NOT_FOUND" || /(-> 404\b|NOT_FOUND)/.test(msg)) return { status: 409, body: { error: "ledger state changed (contract not found); retry", code } };
+    if (code === "DAML_AUTHORIZATION_ERROR" || /-> 403\b/.test(msg)) return { status: 403, body: { error: "not authorized for this operation", code } };
+    if (/-> 5\d\d\b|fetch failed|ECONNREFUSED|ENOTFOUND/.test(msg)) return { status: 502, body: { error: "ledger unavailable", code } };
+    return { status: 400, body: { error: "ledger rejected the request", code } };
+  }
+  return { status: 400, body: { error: msg } };
+}
+// wrap an async handler -> classified, sanitized error
 const h = (fn: (req: Request, res: Response) => Promise<any>) => (req: Request, res: Response, _n: NextFunction) => {
-  fn(req, res).catch((e: any) => res.status(Number(e?.status) || 400).json({ error: String(e?.message ?? e) }));
+  fn(req, res).catch((e: any) => { const { status, body } = classifyError(e); res.status(status).json(body); });
 };
 function requireParty(req: Request, res: Response): string | null {
   const { party } = who(req);
@@ -52,9 +71,29 @@ function requireRole(req: Request, res: Response, role: string): string | null {
   if (r !== role) { res.status(403).json({ error: `requires role: ${role}` }); return null; }
   return party;
 }
+// A per-:party read is only allowed to the party itself or a privileged role
+// (operator/auditor). Blocks anonymous/rival scraping of another party's dashboards.
+function requireSelfOrPrivileged(req: Request, res: Response, subject: string): string | null {
+  const { party, role } = who(req);
+  if (!party) { res.status(401).json({ error: "missing Authorization: Bearer <party>" }); return null; }
+  if (party === subject || role === "operator" || role === "auditor") return party;
+  res.status(403).json({ error: "forbidden: not your data" }); return null;
+}
 function posNum(v: any, name: string): number {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) throw new Error(`invalid ${name}: must be a positive number`);
+  return n;
+}
+function nonNegNum(v: any, name: string): number {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) throw new Error(`invalid ${name}: must be a non-negative number`);
+  return n;
+}
+// duration in whole days, 1..3650 (10y). Guards NaN/negative/absurd inputs.
+function durDays(v: any): number {
+  if (v == null) return 30;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 1 || n > 3650 || !Number.isInteger(n)) throw new Error("invalid durationDays: integer 1..3650");
   return n;
 }
 
@@ -86,9 +125,18 @@ app.post("/api/wallet/prepare", h(async (req, res) => {
   if (!party || !Array.isArray(commands)) throw new Error("party + commands[] required");
   res.json(await ledger.walletPrepare(String(party), commands, Array.isArray(disclosedContracts) ? disclosedContracts : []));
 }));
-app.get("/api/wallet/accept-info", h(async (req, res) => res.json(await ledger.walletAcceptInfo(String(req.query.proposalId ?? "")))));
+app.get("/api/wallet/accept-info", h(async (req, res) => {
+  // returns matched SealedBid blobs (rivals' locked funds) — authenticated callers only.
+  if (!requireParty(req, res)) return;
+  res.json(await ledger.walletAcceptInfo(String(req.query.proposalId ?? "")));
+}));
 app.get("/api/wallet/repay-info", h(async (req, res) => res.json(await ledger.walletRepayInfo(String(req.query.party ?? ""), String(req.query.loanId ?? "")))));
-app.post("/api/faucet", h(async (req, res) => res.json(await ledger.walletFaucet(String(req.body?.party ?? "")))));
+app.post("/api/faucet", h(async (req, res) => {
+  // fund the CALLER only (never a body-supplied party) so it can't be used to mint to
+  // arbitrary/unbounded party names.
+  const party = requireParty(req, res); if (!party) return;
+  res.json(await ledger.walletFaucet(party));
+}));
 app.post("/api/wallet/execute", h(async (req, res) => {
   const { party, preparedTransaction, hashingSchemeVersion, fingerprint, signature } = req.body ?? {};
   if (!party || !preparedTransaction || !hashingSchemeVersion || !fingerprint || !signature) throw new Error("party + preparedTransaction + hashingSchemeVersion + fingerprint + signature required");
@@ -101,7 +149,7 @@ app.get("/api/wallet/holdings", h(async (req, res) => res.json(await ledger.wall
 app.post("/api/bids", h(async (req, res) => {
   const party = requireParty(req, res); if (!party) return;
   const { amount, rate, instrument, durationDays } = req.body ?? {};
-  res.status(201).json(await ledger.createBid(party, { amount: posNum(amount, "amount"), rate: posNum(rate, "rate"), instrument, durationDays: Number(durationDays ?? 30) }));
+  res.status(201).json(await ledger.createBid(party, { amount: posNum(amount, "amount"), rate: posNum(rate, "rate"), instrument, durationDays: durDays(durationDays) }));
 }));
 app.get("/api/bids", h(async (req, res) => res.json(await ledger.listBids(who(req).party))));
 app.delete("/api/bids/:id", h(async (req, res) => {
@@ -145,7 +193,7 @@ app.post("/api/loans/:id/claim-excess", h(async (req, res) => {
 app.post("/api/lend/init", h(async (req, res) => {
   const party = requireParty(req, res); if (!party) return;
   const { amount, instrument, durationDays } = req.body ?? {};
-  res.status(201).json(await ledger.lendInit(party, { amount: posNum(amount, "amount"), instrument, durationDays: Number(durationDays ?? 30) }));
+  res.status(201).json(await ledger.lendInit(party, { amount: posNum(amount, "amount"), instrument, durationDays: durDays(durationDays) }));
 }));
 app.post("/api/lend/confirm", h(async (req, res) => {
   const party = requireParty(req, res); if (!party) return;
@@ -172,23 +220,33 @@ app.post("/api/swap", h(async (req, res) => {
     instrumentIn: String(instrumentIn),
     instrumentOut: String(instrumentOut),
     amountIn: posNum(amountIn, "amountIn"),
-    minAmountOut: minAmountOut != null ? Number(minAmountOut) : undefined,
+    minAmountOut: minAmountOut != null ? nonNegNum(minAmountOut, "minAmountOut") : undefined,
   }));
 }));
 
-// ── collateral quote ──
+// ── collateral quote (scoped: caller must be the subject or privileged) ──
 app.get("/api/collateral-quote", h(async (req, res) => {
   const party = String(req.query.party ?? "").trim();
   if (!party) throw new Error("party required");
+  if (!requireSelfOrPrivileged(req, res, party)) return;
   const amount = posNum(req.query.amount, "amount");
   const instrument = String(req.query.instrument ?? "USD");
   res.json(await ledger.collateralQuote(party, amount, instrument));
 }));
 
-// ── consolidated per-party dashboards (ungated reads by :party) ──
-app.get("/api/lender-status/:party", h(async (req, res) => res.json(await ledger.lenderStatus(req.params.party))));
-app.get("/api/borrower-status/:party", h(async (req, res) => res.json(await ledger.borrowerStatus(req.params.party))));
-app.get("/api/credit-score/:party", h(async (req, res) => res.json(await ledger.creditScore(req.params.party))));
+// ── consolidated per-party dashboards (scoped: self or operator/auditor only) ──
+app.get("/api/lender-status/:party", h(async (req, res) => {
+  if (!requireSelfOrPrivileged(req, res, req.params.party)) return;
+  res.json(await ledger.lenderStatus(req.params.party));
+}));
+app.get("/api/borrower-status/:party", h(async (req, res) => {
+  if (!requireSelfOrPrivileged(req, res, req.params.party)) return;
+  res.json(await ledger.borrowerStatus(req.params.party));
+}));
+app.get("/api/credit-score/:party", h(async (req, res) => {
+  if (!requireSelfOrPrivileged(req, res, req.params.party)) return;
+  res.json(await ledger.creditScore(req.params.party));
+}));
 
 // ── public marketplace feed (ungated, aggregate-only) ──
 app.get("/api/market", h(async (_req, res) => res.json(await ledger.market())));
@@ -207,10 +265,15 @@ app.post("/api/audit/verify/:proposalId", h(async (req, res) => {
   const party = requireRole(req, res, "auditor"); if (!party) return;
   res.json(await ledger.verify(party, req.params.proposalId));
 }));
-app.get("/api/audit/badges", h(async (_req, res) => res.json(await ledger.listBadges())));
+app.get("/api/audit/badges", h(async (req, res) => { if (!requireParty(req, res)) return; res.json(await ledger.listBadges()); }));
 
-// ── lens (hero) + public ──
-app.get("/api/lens", h(async (req, res) => res.json(await ledger.lens(String(req.query.proposalId ?? "")))));
+// ── lens (hero) — perspective is scoped to the CALLER. Anonymous callers get the
+// outsider view (status only); the full multi-perspective teaching view requires an
+// operator/auditor Bearer. Never serves every sealed rate to an unauthenticated caller.
+app.get("/api/lens", h(async (req, res) => {
+  const { party, role } = who(req);
+  res.json(await ledger.lens(String(req.query.proposalId ?? ""), party, role));
+}));
 app.get("/api/status", h(async (_req, res) => res.json(await ledger.status())));
 app.get("/api/health", (_req, res) => res.json({ ok: true, mode: LEDGER_MODE }));
 

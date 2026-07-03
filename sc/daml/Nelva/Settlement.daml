@@ -101,7 +101,12 @@ template MatchProposal
     maturity : Time
   where
     signatory operator
-    observer borrower, auditor, lenders
+    -- lenders are intentionally NOT observers of a PENDING proposal: otherwise every
+    -- co-matched lender could read rival lenders' ticks/rates via projection before the
+    -- borrower even accepts. They become observers of the resulting Loan on Accept (where
+    -- co-funders legitimately share the loan's composition). The `lenders` field is still
+    -- carried to populate Loan.lenders and the AuditBadge.
+    observer borrower, auditor
 
     -- Borrower accepts: ONE atomic transaction draws every matched lender's funds
     -- to the borrower, escrows the collateral, and creates the Loan. No operator
@@ -144,6 +149,11 @@ template MatchProposal
         case remOpt of
           Some rem -> do _ <- exercise rem Unlock; pure ()
           None -> pure ()
+        -- Consume the matched intent too. Without this the BorrowIntent survives with a
+        -- collateralCid that Reject just archived; the matcher then re-includes it and
+        -- RunMatch's `fetch bi.collateralCid` aborts the ENTIRE round (matching wedged
+        -- platform-wide). Archiving here mirrors Accept, which also consumes borrowCid.
+        archive borrowCid
 
 template Loan
   with

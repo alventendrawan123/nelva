@@ -6,14 +6,17 @@
 // that party's projected slice.
 import type { Ledger } from "./ledger.js";
 import { TIER_MULTIPLIER } from "./types.js";
-import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, Tier, HoldingView } from "./types.js";
+import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, Tier, HoldingView, Role } from "./types.js";
 import { cheatMatch, type BidInput } from "./match.js";
 
 const BASE = process.env.JSON_LEDGER_API ?? "http://localhost:7575";
 // package id of the deployed DAR — UPDATE on every SC rebuild (dpm damlc inspect-dar --json)
-const PKG = process.env.NELVA_PACKAGE_ID ?? "e60f573a2bb609093d80bf0d655bcc3359b19e08857766b4a9c68a3396bae284";
+const PKG = process.env.NELVA_PACKAGE_ID ?? "627e1231915eca8a13312bed19a2aa7961880c0e2c3f400600cadf9b5239f145";
 const USER = process.env.LEDGER_USER_ID ?? "nelva-be";
-const DEADLINE = "2030-01-01T00:00:00Z";
+const DEADLINE = "2030-01-01T00:00:00Z"; // default far-future maturity for loans/seeds
+// A SealedBid's withdraw deadline = now + durationDays. Using the hardcoded far-future
+// DEADLINE here made WithdrawBid impossible until 2030, locking lender funds.
+const deadlineFrom = (days: number) => new Date(Date.now() + days * 86400000).toISOString();
 
 const tid = (s: string) => `${PKG}:Nelva.${s}`;
 const nameOf = (pid: string) => (pid ? pid.split("::")[0] : pid);
@@ -42,17 +45,25 @@ async function authHeader(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${_tok.value}` };
 }
 
+// Build an Error that carries the ledger HTTP status + Canton error code so the BE's
+// h() wrapper can classify (and sanitize) it instead of leaking raw ids to the client.
+function ledgerError(path: string, status: number, txt: string): Error {
+  const code = /"code":"([A-Z_]+)"/.exec(txt)?.[1];
+  const e: any = new Error(`${path} -> ${status} ${txt.slice(0, 300)}`);
+  e.ledger = true; e.status = status; e.code = code;
+  return e;
+}
 async function post(path: string, body: any): Promise<any> {
   const r = await fetch(BASE + path, { method: "POST", headers: { "Content-Type": "application/json", ...(await authHeader()) }, body: JSON.stringify(body) });
   const txt = await r.text();
   if (r.status === 401) { _tok = null; } // force refresh next call
-  if (!r.ok) throw new Error(`${path} -> ${r.status} ${txt.slice(0, 300)}`);
+  if (!r.ok) throw ledgerError(path, r.status, txt);
   return txt ? JSON.parse(txt) : {};
 }
 async function get(path: string): Promise<any> {
   const r = await fetch(BASE + path, { headers: { ...(await authHeader()) } });
   if (r.status === 401) { _tok = null; }
-  if (!r.ok) throw new Error(`${path} -> ${r.status}`);
+  if (!r.ok) throw ledgerError(path, r.status, await r.text().catch(() => ""));
   return r.json();
 }
 
@@ -73,21 +84,43 @@ export class CantonLedger implements Ledger {
       this.parties.set(name, pid);
       return pid;
     } catch {
-      const d = await get("/v2/parties");
-      const list = d.partyDetails ?? d.parties ?? [];
-      for (const pd of list) {
-        const pid = typeof pd === "string" ? pd : pd.party;
-        if (pid && pid.split("::")[0] === name) { this.parties.set(name, pid); return pid; }
-      }
+      const found = await this.lookupParty(name);
+      if (found) return found;
       throw new Error(`cannot allocate or find party ${name}`);
     }
   }
 
+  // Read-only party resolution — NEVER allocates. Used by GET/read paths so an
+  // unauthenticated read can't be turned into an unbounded party-allocation primitive.
+  private async lookupParty(name: string): Promise<string | null> {
+    if (!name) return null;
+    if (name.includes("::")) return name;
+    const c = this.parties.get(name);
+    if (c) return c;
+    const d = await get("/v2/parties");
+    const list = d.partyDetails ?? d.parties ?? [];
+    for (const pd of list) {
+      const pid = typeof pd === "string" ? pd : pd.party;
+      if (pid && pid.split("::")[0] === name) { this.parties.set(name, pid); return pid; }
+    }
+    return null;
+  }
+  // Invalidate the name->party-id cache (e.g. after a sandbox/participant restart makes
+  // cached ids stale). Called on ledger auth errors so the next call re-resolves.
+  private resetPartyCache() { this.parties.clear(); this._sync = null; }
+
   private async submit(actAs: string[], command: any, readAs?: string[]) {
     const body: any = { commands: [command], commandId: this.nid("c"), userId: USER, actAs };
     if (readAs) body.readAs = readAs;
-    const r = await post("/v2/commands/submit-and-wait-for-transaction-tree", body);
-    return r.transactionTree;
+    try {
+      const r = await post("/v2/commands/submit-and-wait-for-transaction-tree", body);
+      return r.transactionTree;
+    } catch (e: any) {
+      // stale name->party-id cache (e.g. sandbox restarted under a new namespace key)
+      // surfaces as a party/authorization error — clear the cache so the next call re-resolves.
+      if (e?.code === "DAML_AUTHORIZATION_ERROR" || e?.code === "PARTY_NOT_KNOWN_ON_LEDGER" || /unknown party|party .* not/i.test(String(e?.message ?? ""))) this.resetPartyCache();
+      throw e;
+    }
   }
   private create(actAs: string[], tmpl: string, args: any) {
     return this.submit(actAs, { CreateCommand: { templateId: tid(tmpl), createArguments: args } });
@@ -146,12 +179,22 @@ export class CantonLedger implements Ledger {
     return { proposalId: a.proposalId, verdict: ok ? "GREEN" : "RED", reason: ok ? "recomputed match equals published" : "published match differs from deterministic recompute", auditor: nameOf(a.auditor), checkedAt: new Date().toISOString() };
   }
 
+  // Serialize find-then-create per borrower within this BE process so two concurrent
+  // borrows don't each create a CreditScore (the "single active per borrower" invariant
+  // has no contract key to enforce it on-ledger).
+  private _csLocks = new Map<string, Promise<string>>();
   private async ensureCreditScore(borrowerPid: string): Promise<string> {
-    const op = await this.ensureParty("Operator");
-    const existing = (await this.acsAs(op, "Credit:CreditScore")).find((x) => x.arg.borrower === borrowerPid);
-    if (existing) return existing.cid;
-    const tree = await this.create([op], "Credit:CreditScore", { operator: op, borrower: borrowerPid, tier: "Bronze", loansRepaid: 0, loansDefaulted: 0 });
-    return this.made(tree, "Credit:CreditScore").cid;
+    const inflight = this._csLocks.get(borrowerPid);
+    if (inflight) return inflight;
+    const job = (async () => {
+      const op = await this.ensureParty("Operator");
+      const existing = (await this.acsAs(op, "Credit:CreditScore")).find((x) => x.arg.borrower === borrowerPid);
+      if (existing) return existing.cid;
+      const tree = await this.create([op], "Credit:CreditScore", { operator: op, borrower: borrowerPid, tier: "Bronze", loansRepaid: 0, loansDefaulted: 0 });
+      return this.made(tree, "Credit:CreditScore").cid;
+    })();
+    this._csLocks.set(borrowerPid, job);
+    try { return await job; } finally { this._csLocks.delete(borrowerPid); }
   }
 
   // mint spare unlocked cash so a party's wallet shows available balance (not all locked)
@@ -183,7 +226,7 @@ export class CantonLedger implements Ledger {
     const inst = p.instrument ?? "USD";
     const cash = this.made(await this.create([cust], "Asset:Holding", { custodian: cust, owner: lender, amount: String(p.amount), instrument: inst, locker: null }), "Asset:Holding");
     const locked = this.made(await this.exercise([lender], "Asset:Holding", cash.cid, "Lock", { newLocker: op }), "Asset:Holding");
-    const tree = await this.create([lender], "Lending:SealedBid", { lender, matchingOperator: op, auditor: aud, bidId: this.nid("bid"), holdingCid: locked.cid, amount: String(p.amount), bidRate: String(p.rate), instrument: inst, deadline: DEADLINE });
+    const tree = await this.create([lender], "Lending:SealedBid", { lender, matchingOperator: op, auditor: aud, bidId: this.nid("bid"), holdingCid: locked.cid, amount: String(p.amount), bidRate: String(p.rate), instrument: inst, deadline: deadlineFrom(p.durationDays ?? 30) });
     return this.bidDto(this.made(tree, "Lending:SealedBid"));
   }
   async listBids(viewer?: string): Promise<Bid[]> {
@@ -257,23 +300,36 @@ export class CantonLedger implements Ledger {
     return { loanId, status: "REPAID", newTier: csNow?.arg.tier ?? "Silver" };
   }
 
+  private _matching = false;
   async runMatch(): Promise<MatchProposal[]> {
-    const op = await this.ensureParty("Operator");
-    const aud = await this.ensureParty("Auditor");
-    const bids = await this.acsAs(op, "Lending:SealedBid");
-    const borrows = await this.acsAs(op, "Lending:BorrowIntent");
-    // Skip bids/borrows already committed to a PENDING proposal — they're only
-    // consumed at Accept, so without this the auto-matcher re-matches the same
-    // ones every tick and proposals pile up.
-    const proposals = await this.acsAs(op, "Settlement:MatchProposal");
-    const usedBids = new Set<string>(proposals.flatMap((p) => (p.arg.matchedTicks ?? []).map((t: any) => t.bidCid)));
-    const usedBorrows = new Set<string>(proposals.map((p) => p.arg.borrowCid));
-    const freeBids = bids.filter((b) => !usedBids.has(b.cid));
-    const freeBorrows = borrows.filter((b) => !usedBorrows.has(b.cid));
-    if (!freeBids.length || !freeBorrows.length) return [];
-    const rnd = this.made(await this.create([op], "Settlement:MatchRound", { operator: op, auditor: aud }), "Settlement:MatchRound");
-    const tree = await this.exercise([op], "Settlement:MatchRound", rnd.cid, "RunMatch", { bidCids: freeBids.map((b) => b.cid), borrowCids: freeBorrows.map((b) => b.cid) });
-    return this.allMade(tree, "Settlement:MatchProposal").map((x) => this.propDto(x));
+    // mutex: a slow (>20s) tick must not overlap the interval or a manual run-match, or
+    // both rounds fetch/propose the same free bids -> duplicate proposals / races.
+    if (this._matching) return [];
+    this._matching = true;
+    try {
+      const op = await this.ensureParty("Operator");
+      const aud = await this.ensureParty("Auditor");
+      const bids = await this.acsAs(op, "Lending:SealedBid");
+      const borrows = await this.acsAs(op, "Lending:BorrowIntent");
+      // Skip bids/borrows already committed to a PENDING proposal — they're only
+      // consumed at Accept, so without this the auto-matcher re-matches the same
+      // ones every tick and proposals pile up.
+      const proposals = await this.acsAs(op, "Settlement:MatchProposal");
+      const usedBids = new Set<string>(proposals.flatMap((p) => (p.arg.matchedTicks ?? []).map((t: any) => t.bidCid)));
+      const usedBorrows = new Set<string>(proposals.map((p) => p.arg.borrowCid));
+      // Defense-in-depth against a zombie BorrowIntent whose collateral Holding was already
+      // archived (e.g. a legacy Reject before the SC fix): RunMatch fetches bi.collateralCid,
+      // so one dangling ref aborts the WHOLE round. Only match borrows whose collateral is live.
+      const liveHoldings = new Set<string>((await this.acsAs(op, "Asset:Holding")).map((hd) => hd.cid));
+      const freeBids = bids.filter((b) => !usedBids.has(b.cid));
+      const freeBorrows = borrows.filter((b) => !usedBorrows.has(b.cid) && liveHoldings.has(b.arg.collateralCid));
+      if (!freeBids.length || !freeBorrows.length) return [];
+      const rnd = this.made(await this.create([op], "Settlement:MatchRound", { operator: op, auditor: aud }), "Settlement:MatchRound");
+      const tree = await this.exercise([op], "Settlement:MatchRound", rnd.cid, "RunMatch", { bidCids: freeBids.map((b) => b.cid), borrowCids: freeBorrows.map((b) => b.cid) });
+      return this.allMade(tree, "Settlement:MatchProposal").map((x) => this.propDto(x));
+    } finally {
+      this._matching = false;
+    }
   }
   async runCheatMatch(): Promise<MatchProposal[]> {
     const op = await this.ensureParty("Operator");
@@ -289,7 +345,12 @@ export class CantonLedger implements Ledger {
     if (!f) return [];
     const cidByBidId = new Map(bidInputs.map((x) => [x.bidId, x.cid]));
     const ticks = f.ticks.map((t) => ({ lender: t.lender, bidId: t.bidId, bidCid: cidByBidId.get(t.bidId), amount: String(t.amount), rate: String(t.rate) }));
-    const dummy = this.made(await this.create([cust], "Asset:Holding", { custodian: cust, owner: ba.borrower, amount: "1.0", instrument: "USD", locker: null }), "Asset:Holding");
+    // The cheat proposal's escrow must be LOCKED like a real one, else Accept (DrawLocked)
+    // and Reject (DrawLockedAmount) both abort (they assert locker /= None) and the proposal
+    // becomes un-consumable, permanently reserving its bids/borrow. Own it to the operator
+    // and lock to the operator so both choices resolve.
+    const dummyUnlocked = this.made(await this.create([cust], "Asset:Holding", { custodian: cust, owner: op, amount: "1.0", instrument: "USD", locker: null }), "Asset:Holding");
+    const dummy = this.made(await this.exercise([op], "Asset:Holding", dummyUnlocked.cid, "Lock", { newLocker: op }), "Asset:Holding");
     const tree = await this.create([op], "Settlement:MatchProposal", {
       operator: op, borrower: ba.borrower, auditor: aud, lenders: f.ticks.map((t) => t.lender),
       proposalId: "P-CHEAT", principal: String(f.principal), blendedRate: String(f.blendedRate), tier: ba.tier,
@@ -309,8 +370,9 @@ export class CantonLedger implements Ledger {
     const loan = (await this.acsAs(op, "Settlement:Loan")).find((l) => l.cid === loanId);
     if (!loan) throw new Error("loan not found");
     const inst = loan.arg.instrument ?? "USD";
-    const price = (await this.acsAs(op, "Settlement:PriceUpdate")).find((p) => p.arg.instrument === inst);
-    if (!price) throw new Error("no price set for " + inst + "; POST /api/admin/price first");
+    // use the NEWEST PriceUpdate (setPrice appends, never archives); .find() picked the
+    // oldest and mis-decided liquidations. latestPrice reduces by asOf.
+    const price = await this.latestPrice(inst);
     const cs = await this.ensureCreditScore(loan.arg.borrower);
     await this.exercise([op], "Settlement:Loan", loanId, "Liquidate", { priceCid: price.cid, creditScoreCid: cs });
     return { loanId, status: "LIQUIDATED" };
@@ -329,27 +391,43 @@ export class CantonLedger implements Ledger {
     return (await this.acsAs(await this.ensureParty("Auditor"), "Settlement:AuditBadge")).map((x) => this.badgeDto(x));
   }
 
-  async lens(proposalId: string) {
+  // Perspective is SCOPED to the caller. The operator/auditor projection (every sealed
+  // rate) is served only to an operator/auditor Bearer; a borrower/lender sees only their
+  // own slice; an anonymous/outsider caller gets the status view only. This is what makes
+  // the sealed-bid privacy hold at the API boundary (not just in the Daml projection).
+  async lens(proposalId: string, viewer?: string, role?: Role) {
     const op = await this.ensureParty("Operator");
     const aud = await this.ensureParty("Auditor");
-    const allBids = await this.acsAs(op, "Lending:SealedBid");
+    const privileged = role === "operator" || role === "auditor";
     const props = await this.acsAs(op, "Settlement:MatchProposal");
     const p = props.find((x) => x.cid === proposalId) ?? props[0] ?? null;
     const parg = p?.arg;
-    const exLender: string | undefined = parg?.matchedTicks?.[0]?.lender;
-    const lenderBids = exLender ? await this.acsAs(exLender, "Lending:SealedBid") : [];
-    const badges = await this.acsAs(aud, "Settlement:AuditBadge");
-    const badge = badges.find((x) => x.arg.proposalId === parg?.proposalId) ?? null;
-    return {
-      subject: parg ? { proposalId, borrower: nameOf(parg.borrower), principal: Number(parg.principal) } : null,
-      perspectives: {
-        lender: { party: exLender ? nameOf(exLender) : null, canSee: ["ownBid"], bids: lenderBids.map((x) => this.bidDto(x)) },
-        borrower: { party: parg ? nameOf(parg.borrower) : null, canSee: ["proposal"], proposal: p ? this.propDto(p) : null },
-        operator: { canSee: ["allBids", "proposal"], bids: allBids.map((x) => this.bidDto(x)), proposal: p ? this.propDto(p) : null },
-        auditor: { canSee: ["allBids", "verdict"], bids: allBids.map((x) => this.bidDto(x)), badge: badge ? this.badgeDto(badge) : null },
-        outsider: { canSee: ["status"], status: await this.status() },
-      },
-    };
+    const subject = parg ? { proposalId, borrower: nameOf(parg.borrower), principal: Number(parg.principal) } : null;
+    const outsider = { canSee: ["status"], status: await this.status() };
+    const perspectives: any = { outsider };
+
+    if (role === "operator") {
+      const allBids = await this.acsAs(op, "Lending:SealedBid");
+      perspectives.operator = { canSee: ["allBids", "proposal"], bids: allBids.map((x) => this.bidDto(x)), proposal: p ? this.propDto(p) : null };
+    }
+    if (role === "auditor") {
+      const allBids = await this.acsAs(aud, "Lending:SealedBid");
+      const badges = await this.acsAs(aud, "Settlement:AuditBadge");
+      // pick the NEWEST badge for this proposalId (ACS is append-only; .find() returned the oldest).
+      const mine = badges.filter((x) => x.arg.proposalId === parg?.proposalId);
+      const badge = mine.length ? mine[mine.length - 1] : null;
+      perspectives.auditor = { canSee: ["allBids", "verdict"], bids: allBids.map((x) => this.bidDto(x)), badge: badge ? this.badgeDto(badge) : null };
+    }
+    // A borrower viewing their OWN proposal sees the proposal; a lender sees only their own bids.
+    if (viewer && parg && nameOf(parg.borrower) === viewer) {
+      perspectives.borrower = { party: viewer, canSee: ["proposal"], proposal: p ? this.propDto(p) : null };
+    }
+    if (viewer && role === "lender") {
+      const own = await this.acsAs(await this.ensureParty(viewer), "Lending:SealedBid");
+      perspectives.lender = { party: viewer, canSee: ["ownBid"], bids: own.map((x) => this.bidDto(x)) };
+    }
+    // Non-privileged callers must not learn the borrower/principal of an arbitrary proposal.
+    return { subject: privileged ? subject : (viewer && parg && nameOf(parg.borrower) === viewer ? subject : null), perspectives };
   }
 
   async status() {
@@ -365,7 +443,8 @@ export class CantonLedger implements Ledger {
   // real wallet: the party's own Holding contracts on Canton
   async holdings(viewer?: string): Promise<HoldingView[]> {
     if (!viewer) return [];
-    const pid = await this.ensureParty(viewer);
+    const pid = await this.lookupParty(viewer);
+    if (!pid) return [];
     const hs = await this.acsAs(pid, "Asset:Holding");
     return hs
       .filter((x) => x.arg.owner === pid)
@@ -487,12 +566,20 @@ export class CantonLedger implements Ledger {
   }
   // Fund a fresh wallet party (e.g. a Canton-gateway party with no faucet of its
   // own) with 200 nUSD, once — idempotent so it can't be drained by re-calling.
+  private _faucetLocks = new Map<string, Promise<{ party: string; funded: boolean }>>();
   async walletFaucet(party: string) {
     if (!party) throw new Error("party required");
     const pid = await this.ensureParty(party);
-    const has = (await this.acsAs(pid, "Asset:Holding")).some((x) => x.arg.owner === pid);
-    if (!has) await this.fundPid(pid, 200);
-    return { party: pid, funded: !has };
+    // serialize per party so concurrent calls can't both pass the has-holding check and double-fund
+    const inflight = this._faucetLocks.get(pid);
+    if (inflight) return inflight;
+    const job = (async () => {
+      const has = (await this.acsAs(pid, "Asset:Holding")).some((x) => x.arg.owner === pid);
+      if (!has) await this.fundPid(pid, 200);
+      return { party: pid, funded: !has };
+    })();
+    this._faucetLocks.set(pid, job);
+    try { return await job; } finally { this._faucetLocks.delete(pid); }
   }
   // step 4: FE returns the signature over the prepared hash -> we submit. The key never left the browser.
   async walletExecute(party: string, preparedTransaction: string, hashingSchemeVersion: string, fingerprint: string, sig: string) {
@@ -515,7 +602,8 @@ export class CantonLedger implements Ledger {
   // a party's Holding contracts WITH contract ids (the FE needs cids to lock/split/bid)
   async walletHoldings(party: string) {
     if (!party) return [];
-    const pid = await this.ensureParty(party);
+    const pid = await this.lookupParty(party);
+    if (!pid) return [];
     const hs = await this.acsAs(pid, "Asset:Holding");
     return hs
       .filter((x) => x.arg.owner === pid)
@@ -573,17 +661,28 @@ export class CantonLedger implements Ledger {
   async swap(party: string, p: { instrumentIn: string; instrumentOut: string; amountIn: number; minAmountOut?: number }) {
     const swapper = await this.ensureParty(party);
     const op = await this.ensureParty("Operator");
-    const cust = await this.ensureParty("Custodian");
     const oracle = await this.ensureParty("Oracle");
-    // demo: mint the swapper an UNLOCKED in-Holding of exactly amountIn.
-    const inH = this.made(await this.create([cust], "Asset:Holding", { custodian: cust, owner: swapper, amount: String(p.amountIn), instrument: p.instrumentIn, locker: null }), "Asset:Holding");
+    // Draw from the swapper's OWN unlocked balance of instrumentIn — NEVER mint (minting
+    // the in-Holding was free value creation). Pick the smallest holding that covers
+    // amountIn; split it to the exact amount so the remainder stays with the swapper.
+    const owned = (await this.acsAs(swapper, "Asset:Holding"))
+      .filter((x) => x.arg.owner === swapper && x.arg.instrument === p.instrumentIn && x.arg.locker == null && Number(x.arg.amount) >= p.amountIn)
+      .sort((a, b) => Number(a.arg.amount) - Number(b.arg.amount));
+    const src = owned[0];
+    if (!src) { const e: any = new Error(`insufficient unlocked ${p.instrumentIn} balance to swap ${p.amountIn}`); e.status = 400; throw e; }
+    let inCid = src.cid;
+    if (Number(src.arg.amount) > p.amountIn) {
+      const splitTree = await this.exercise([swapper], "Asset:Holding", src.cid, "Split", { splitAmount: String(p.amountIn) });
+      const pieces = this.allMade(splitTree, "Asset:Holding");
+      inCid = (pieces.find((x) => Number(x.arg.amount) === p.amountIn) ?? pieces[0]).cid;
+    }
     const [pin, pout] = await Promise.all([this.latestPrice(p.instrumentIn), this.latestPrice(p.instrumentOut)]);
     const amountOut = (p.amountIn * pin.price) / pout.price;
     const minOut = p.minAmountOut ?? 0;
     const pool = await this.ensureSwapPool();
     // actAs=[swapper, operator] (both controllers); readAs=[oracle] so the PriceUpdate contracts are visible.
     const tree = await this.exercise([swapper, op], "Settlement:SwapPool", pool, "Swap", {
-      swapper, inCid: inH.cid, instrumentOut: p.instrumentOut,
+      swapper, inCid, instrumentOut: p.instrumentOut,
       priceInCid: pin.cid, priceOutCid: pout.cid, minAmountOut: String(minOut),
     }, [oracle]);
     const out = this.made(tree, "Asset:Holding");
@@ -591,15 +690,17 @@ export class CantonLedger implements Ledger {
   }
 
   // consolidated dashboards (pure ACS fan-out)
+  // READ-ONLY: never creates a CreditScore (that was a write side-effect on a GET path).
+  // A borrower with no score yet reads as the synthetic Bronze default.
   private async creditScoreView(borrowerPid: string): Promise<{ tier: Tier; loansRepaid: number; loansDefaulted: number; collateralMultiplier: number }> {
-    await this.ensureCreditScore(borrowerPid);
     const op = await this.ensureParty("Operator");
     const cs = (await this.acsAs(op, "Credit:CreditScore")).find((x) => x.arg.borrower === borrowerPid);
     const tier = (cs?.arg.tier ?? "Bronze") as Tier;
     return { tier, loansRepaid: Number(cs?.arg.loansRepaid ?? 0), loansDefaulted: Number(cs?.arg.loansDefaulted ?? 0), collateralMultiplier: TIER_MULTIPLIER[tier] };
   }
   async lenderStatus(party: string): Promise<any> {
-    const pid = await this.ensureParty(party);
+    const pid = await this.lookupParty(party);
+    if (!pid) return { party, activeLends: [], activeLoans: [], completedLoans: [], pendingPayouts: [] };
     const name = nameOf(pid);
     const activeLends = (await this.acsAs(pid, "Lending:SealedBid")).map((x) => this.bidDto(x));
     const loans = (await this.acsAs(pid, "Settlement:Loan")).map((x) => this.loanDto(x));
@@ -615,7 +716,8 @@ export class CantonLedger implements Ledger {
     return { party: name, activeLends, activeLoans, completedLoans, pendingPayouts };
   }
   async borrowerStatus(party: string): Promise<any> {
-    const pid = await this.ensureParty(party);
+    const pid = await this.lookupParty(party);
+    if (!pid) return { party, pendingIntents: [], pendingProposals: [], activeLoans: [], completedLoans: [], creditScore: { tier: "Bronze", loansRepaid: 0, loansDefaulted: 0, collateralMultiplier: TIER_MULTIPLIER.Bronze } };
     const name = nameOf(pid);
     const [intents, proposals, loans, creditScore] = await Promise.all([
       this.acsAs(pid, "Lending:BorrowIntent"),
@@ -630,23 +732,25 @@ export class CantonLedger implements Ledger {
     return { party: name, pendingIntents, pendingProposals, activeLoans, completedLoans, creditScore };
   }
   async creditScore(party: string): Promise<any> {
-    const pid = await this.ensureParty(party);
+    const pid = await this.lookupParty(party);
+    if (!pid) return { tier: "Bronze", loansRepaid: 0, loansDefaulted: 0, collateralMultiplier: TIER_MULTIPLIER.Bronze };
     return this.creditScoreView(pid);
   }
 
   // 2-phase lend (TTL slot map — the one piece of acceptable pre-ledger BE state)
-  private _lendSlots = new Map<string, { party: string; holdingCid: string; amount: number; instrument: string; durationDays: number; exp: number }>();
+  // Phase-1 reserves a slot ONLY — no on-ledger mint. Previously lendInit minted an
+  // unlocked, spendable Holding up front, which was never reclaimed if confirm never
+  // came (and orphaned on BE restart). Now the Holding is minted at confirm time.
+  private _lendSlots = new Map<string, { party: string; amount: number; instrument: string; durationDays: number; exp: number }>();
   private static SLOT_TTL_MS = 10 * 60_000;
   private sweepSlots() { const now = Date.now(); for (const [k, v] of this._lendSlots) if (now > v.exp) this._lendSlots.delete(k); }
   async lendInit(party: string, p: { amount: number; instrument?: string; durationDays?: number }): Promise<{ slotId: string; expiresAt: string; amount: number; instrument: string }> {
     this.sweepSlots();
-    const lender = await this.ensureParty(party);
-    const cust = await this.ensureParty("Custodian");
+    await this.ensureParty(party); // validate the caller resolves to a party
     const inst = p.instrument ?? "USD";
-    const cash = this.made(await this.create([cust], "Asset:Holding", { custodian: cust, owner: lender, amount: String(p.amount), instrument: inst, locker: null }), "Asset:Holding");
     const slotId = this.nid("slot");
     const exp = Date.now() + CantonLedger.SLOT_TTL_MS;
-    this._lendSlots.set(slotId, { party, holdingCid: cash.cid, amount: p.amount, instrument: inst, durationDays: p.durationDays ?? 30, exp });
+    this._lendSlots.set(slotId, { party, amount: p.amount, instrument: inst, durationDays: p.durationDays ?? 30, exp });
     return { slotId, expiresAt: new Date(exp).toISOString(), amount: p.amount, instrument: inst };
   }
   async lendConfirm(party: string, slotId: string, rate: number): Promise<Bid> {
@@ -658,20 +762,24 @@ export class CantonLedger implements Ledger {
     }
     this._lendSlots.delete(slotId);
     const lender = await this.ensureParty(party);
+    const cust = await this.ensureParty("Custodian");
     const op = await this.ensureParty("Operator");
     const aud = await this.ensureParty("Auditor");
-    const locked = this.made(await this.exercise([lender], "Asset:Holding", s.holdingCid, "Lock", { newLocker: op }), "Asset:Holding");
-    const tree = await this.create([lender], "Lending:SealedBid", { lender, matchingOperator: op, auditor: aud, bidId: this.nid("bid"), holdingCid: locked.cid, amount: String(s.amount), bidRate: String(rate), instrument: s.instrument, deadline: DEADLINE });
+    // mint + lock the funds now (at confirm), so an abandoned init leaves no ledger state
+    const cash = this.made(await this.create([cust], "Asset:Holding", { custodian: cust, owner: lender, amount: String(s.amount), instrument: s.instrument, locker: null }), "Asset:Holding");
+    const locked = this.made(await this.exercise([lender], "Asset:Holding", cash.cid, "Lock", { newLocker: op }), "Asset:Holding");
+    const tree = await this.create([lender], "Lending:SealedBid", { lender, matchingOperator: op, auditor: aud, bidId: this.nid("bid"), holdingCid: locked.cid, amount: String(s.amount), bidRate: String(rate), instrument: s.instrument, deadline: deadlineFrom(s.durationDays) });
     return this.bidDto(this.made(tree, "Lending:SealedBid"));
   }
 
   // collateral quote
   async collateralQuote(party: string, amount: number, instrument = "USD"): Promise<{ party: string; instrument: string; amount: number; tier: Tier; multiplier: number; price: number | null; priceKnown: boolean; requiredCollateral: number }> {
     const op = await this.ensureParty("Operator");
-    const bor = await this.ensureParty(party);
-    const scored = (await this.acsAs(op, "Credit:CreditScore")).find((x) => x.arg.borrower === bor);
-    let tier: Tier = (scored?.arg.tier as Tier) ?? "Bronze";
-    if (!scored) { await this.ensureCreditScore(bor); tier = "Bronze"; }
+    // READ-ONLY: resolve without allocating and without creating a CreditScore. An
+    // unknown/unscored borrower quotes at the Bronze default.
+    const bor = await this.lookupParty(party);
+    const scored = bor ? (await this.acsAs(op, "Credit:CreditScore")).find((x) => x.arg.borrower === bor) : undefined;
+    const tier: Tier = (scored?.arg.tier as Tier) ?? "Bronze";
     const multiplier = TIER_MULTIPLIER[tier];
     const prices = (await this.acsAs(op, "Settlement:PriceUpdate")).filter((pr) => pr.arg.instrument === instrument);
     prices.sort((a, b) => String(a.arg.asOf).localeCompare(String(b.arg.asOf)));
@@ -679,7 +787,7 @@ export class CantonLedger implements Ledger {
     const price = latest ? Number(latest.arg.price) : null;
     const priceKnown = typeof price === "number" && Number.isFinite(price) && price > 0;
     const requiredCollateral = priceKnown ? (amount * multiplier) / (price as number) : amount * multiplier;
-    return { party: nameOf(bor), instrument, amount, tier, multiplier, price, priceKnown, requiredCollateral };
+    return { party: bor ? nameOf(bor) : party, instrument, amount, tier, multiplier, price, priceKnown, requiredCollateral };
   }
 
   // expire-proposals (report-only: operator can't finalize a borrower-controlled proposal)
@@ -701,26 +809,32 @@ export class CantonLedger implements Ledger {
   }
 
   // public market feed (aggregate-only; never a rate or identity)
-  async market(): Promise<{ instruments: { instrument: string; openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number; totalOpenBorrowVolume: number; avgLoanSize: number }[] }> {
+  async market(): Promise<{ instruments: { instrument: string; openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number | null; totalOpenBorrowVolume: number | null; avgLoanSize: number | null }[] }> {
     const op = await this.ensureParty("Operator");
     const [bids, borrows, loans] = await Promise.all([
       this.acsAs(op, "Lending:SealedBid"),
       this.acsAs(op, "Lending:BorrowIntent"),
       this.acsAs(op, "Settlement:Loan"),
     ]);
-    type Agg = { openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number; totalOpenBorrowVolume: number; loanPrincipalSum: number };
+    type Agg = { openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number; totalOpenBorrowVolume: number; loanPrincipalSum: number; lenders: Set<string>; borrowers: Set<string> };
     const byInst = new Map<string, Agg>();
     const bucket = (inst: string): Agg => {
       const key = inst || "USD";
       let a = byInst.get(key);
-      if (!a) { a = { openBids: 0, openBorrows: 0, activeLoans: 0, totalOpenLendVolume: 0, totalOpenBorrowVolume: 0, loanPrincipalSum: 0 }; byInst.set(key, a); }
+      if (!a) { a = { openBids: 0, openBorrows: 0, activeLoans: 0, totalOpenLendVolume: 0, totalOpenBorrowVolume: 0, loanPrincipalSum: 0, lenders: new Set(), borrowers: new Set() }; byInst.set(key, a); }
       return a;
     };
-    for (const b of bids) { const a = bucket(b.arg.instrument); a.openBids++; a.totalOpenLendVolume += Number(b.arg.amount); }
-    for (const b of borrows) { const a = bucket(b.arg.instrument); a.openBorrows++; a.totalOpenBorrowVolume += Number(b.arg.amount); }
+    for (const b of bids) { const a = bucket(b.arg.instrument); a.openBids++; a.totalOpenLendVolume += Number(b.arg.amount); a.lenders.add(String(b.arg.lender)); }
+    for (const b of borrows) { const a = bucket(b.arg.instrument); a.openBorrows++; a.totalOpenBorrowVolume += Number(b.arg.amount); a.borrowers.add(String(b.arg.borrower)); }
     for (const l of loans) { const a = bucket(l.arg.instrument); a.activeLoans++; a.loanPrincipalSum += Number(l.arg.principal); }
+    // k-anonymity: a volume aggregated over a single distinct participant IS that
+    // participant's exact position. Suppress (null) any volume backed by < 2 distinct parties.
+    const MIN_K = 2;
     const instruments = [...byInst.entries()]
-      .map(([instrument, a]) => ({ instrument, openBids: a.openBids, openBorrows: a.openBorrows, activeLoans: a.activeLoans, totalOpenLendVolume: a.totalOpenLendVolume, totalOpenBorrowVolume: a.totalOpenBorrowVolume, avgLoanSize: a.activeLoans ? a.loanPrincipalSum / a.activeLoans : 0 }))
+      .map(([instrument, a]) => ({ instrument, openBids: a.openBids, openBorrows: a.openBorrows, activeLoans: a.activeLoans,
+        totalOpenLendVolume: a.lenders.size >= MIN_K ? a.totalOpenLendVolume : null,
+        totalOpenBorrowVolume: a.borrowers.size >= MIN_K ? a.totalOpenBorrowVolume : null,
+        avgLoanSize: a.activeLoans >= MIN_K ? a.loanPrincipalSum / a.activeLoans : null }))
       .sort((x, y) => x.instrument.localeCompare(y.instrument));
     return { instruments };
   }

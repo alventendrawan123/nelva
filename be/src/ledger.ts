@@ -1,7 +1,7 @@
 // Ledger interface + factory. server.ts talks ONLY to this, so swapping the
 // in-memory mock for the real Canton JSON Ledger API needs no route changes.
 // Pick the impl with env LEDGER_MODE=mock (default) | canton.
-import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, HoldingView, Tier } from "./types.js";
+import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, HoldingView, Tier, Role } from "./types.js";
 import { MockLedger } from "./ledger.mock.js";
 import { CantonLedger } from "./ledger.canton.js";
 
@@ -29,8 +29,8 @@ export interface Ledger {
   auditBids(): Promise<Bid[]>;
   verify(auditor: string, proposalId: string): Promise<AuditBadge>;
   listBadges(): Promise<AuditBadge[]>;
-  // hero
-  lens(proposalId: string): Promise<any>;
+  // hero (perspective scoped to the caller's role/party)
+  lens(proposalId: string, viewer?: string, role?: Role): Promise<any>;
   // wallet (real, from ledger)
   holdings(viewer?: string): Promise<HoldingView[]>;
   partyId(name: string): Promise<string | null>;
@@ -57,7 +57,7 @@ export interface Ledger {
   lendConfirm(party: string, slotId: string, rate: number): Promise<Bid>;
   collateralQuote(party: string, amount: number, instrument?: string): Promise<{ party: string; instrument: string; amount: number; tier: Tier; multiplier: number; price: number | null; priceKnown: boolean; requiredCollateral: number }>;
   expireProposals(): Promise<{ checked: number; expired: number; stale: { proposalId: string; borrower: string; ageMs: number }[]; policy: string; note: string }>;
-  market(): Promise<{ instruments: { instrument: string; openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number; totalOpenBorrowVolume: number; avgLoanSize: number }[] }>;
+  market(): Promise<{ instruments: { instrument: string; openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number | null; totalOpenBorrowVolume: number | null; avgLoanSize: number | null }[] }>;
 }
 
 export const LEDGER_MODE = process.env.LEDGER_MODE === "canton" ? "canton" : "mock";
