@@ -10,6 +10,7 @@ module Nelva.Settlement where
 import DA.Time (addRelTime, days, hours)
 import DA.Optional (fromSome)
 import DA.List (unique, find)
+import DA.Foldable (mapA_)
 import Nelva.Asset
 import Nelva.Lending
 import Nelva.Match
@@ -130,11 +131,12 @@ template MatchProposal
               matchedTicks
         escrow <- exercise collateralCid DrawLocked with newOwner = operator
         archive borrowCid   -- consume the matched intent so it can't be re-matched
-        create Loan with
+        loan <- create Loan with
           borrower
           operator
           auditor
           lenders
+          loanKey = proposalId
           ticks = matchedTicks
           principal
           blendedRate
@@ -145,6 +147,13 @@ template MatchProposal
           oracle
           instrument
           maturity
+        -- one PRIVATE position receipt per matched lender (observed only by that lender)
+        mapA_
+          (\t -> create LoanPosition with
+                   operator, lender = t.lender, borrower, loanKey = proposalId
+                   amount = t.amount, rate = t.rate, instrument, maturity)
+          matchedTicks
+        pure loan
 
     -- Borrower walks away: 5% of collateral is slashed to the operator, 95% is
     -- returned (unlocked) to the borrower. Discourages using proposals as free
@@ -169,12 +178,31 @@ template MatchProposal
         -- platform-wide). Archiving here mirrors Accept, which also consumes borrowCid.
         archive borrowCid
 
+-- A single lender's PRIVATE view of their slice of a loan. Observed only by that lender
+-- (operator is signatory), so co-funders never learn each other's discriminatory rate —
+-- the Loan itself no longer projects `ticks` to the lender set. `loanKey` links the
+-- receipts to their loan so Repay/Liquidate can retire them.
+template LoanPosition
+  with
+    operator : Party
+    lender : Party
+    borrower : Party
+    loanKey : Text
+    amount : Numeric 10
+    rate : Numeric 10
+    instrument : Text
+    maturity : Time
+  where
+    signatory operator
+    observer lender
+
 template Loan
   with
     borrower : Party
     operator : Party
     auditor : Party
     lenders : [Party]
+    loanKey : Text                          -- stable id linking the per-lender LoanPositions
     ticks : [MatchedTick]
     principal : Numeric 10
     blendedRate : Numeric 10
@@ -187,7 +215,9 @@ template Loan
     maturity : Time
   where
     signatory borrower, operator
-    observer auditor, lenders
+    -- lenders are NOT observers: a co-funder must not read rival ticks/rates via the Loan.
+    -- Each lender sees only their own LoanPosition; auditor keeps full visibility for audit.
+    observer auditor
     ensure collateralAmount >= requiredCollateral   -- ledger-enforced over-collateralization
 
     -- Borrower repays: pays each lender principal + flat interest (at THEIR own
@@ -196,6 +226,7 @@ template Loan
       with
         repaymentCid : ContractId Holding
         creditScoreCid : ContractId CreditScore
+        positionCids : [ContractId LoanPosition]
       controller borrower
       do
         cs <- fetch creditScoreCid
@@ -203,6 +234,7 @@ template Loan
         _ <- payLenders (Some repaymentCid) ticks
         _ <- exercise collateralCid Transfer with newOwner = borrower
         _ <- exercise creditScoreCid BumpUp
+        retirePositions loanKey positionCids
         pure ()
 
     -- Borrower reclaims collateral ABOVE requiredCollateral mid-loan. After Accept
@@ -244,6 +276,7 @@ template Loan
       with
         priceCid : ContractId PriceUpdate
         creditScoreCid : ContractId CreditScore
+        positionCids : [ContractId LoanPosition]
       controller operator
       do
         pu <- fetch priceCid
@@ -277,6 +310,7 @@ template Loan
                 shares = sharesByOwed toLenders ticks ++ [(borrower, surplus)]
             distribute collateralCid shares
             pure ()
+        retirePositions loanKey positionCids
 
 template MatchRound
   with
@@ -396,7 +430,9 @@ template AuditBadge
     verdict : Bool   -- True = GREEN (honest match), False = RED (dishonest)
   where
     signatory auditor
-    observer operator, borrower, lenders
+    -- lenders are NOT observers: the badge lists the full lender set, which would disclose
+    -- co-funders to each other. Operator + borrower suffice for the audit trail.
+    observer operator, borrower
 
 -- ── helpers ────────────────────────────────────────────────────────────────
 
@@ -450,3 +486,12 @@ distribute remCid ((lender, share) :: rest) =
       case remOpt of
         Some r -> distribute r rest
         None -> pure ()
+
+-- Retire a loan's per-lender position receipts (assert each belongs to this loan).
+retirePositions : Text -> [ContractId LoanPosition] -> Update ()
+retirePositions key cids =
+  mapA_ (\c -> do
+          lp <- fetch c
+          assertMsg "position not for this loan" (lp.loanKey == key)
+          archive c)
+        cids

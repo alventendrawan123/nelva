@@ -11,7 +11,7 @@ import { cheatMatch, type BidInput } from "./match.js";
 
 const BASE = process.env.JSON_LEDGER_API ?? "http://localhost:7575";
 // package id of the deployed DAR — UPDATE on every SC rebuild (dpm damlc inspect-dar --json)
-const PKG = process.env.NELVA_PACKAGE_ID ?? "4e693a56d00cc5774b07dfb69880305cff8a877d2a1aef9126350f489c6c8a8a";
+const PKG = process.env.NELVA_PACKAGE_ID ?? "198e9be837647ec88bec2e2b7d636977bb2ed1e4e0b7e51d481073d626e98585";
 const USER = process.env.LEDGER_USER_ID ?? "nelva-be";
 const DEADLINE = "2030-01-01T00:00:00Z"; // default far-future maturity for loans/seeds
 // A SealedBid's withdraw deadline = now + durationDays. Using the hardcoded far-future
@@ -300,7 +300,8 @@ export class CantonLedger implements Ledger {
     const owed = ticks.reduce((a, t) => a + Number(t.amount) + Number(t.amount) * Number(t.rate), 0);
     const repayHolding = this.made(await this.create([cust], "Asset:Holding", { custodian: cust, owner: bor, amount: String(owed + 1), instrument: "USD", locker: null }), "Asset:Holding");
     const cs = await this.ensureCreditScore(bor);
-    await this.exercise([bor], "Settlement:Loan", loanId, "Repay", { repaymentCid: repayHolding.cid, creditScoreCid: cs }, [op]);
+    const positions = (await this.acsAs(op, "Settlement:LoanPosition")).filter((x) => x.arg.loanKey === loan.arg.loanKey);
+    await this.exercise([bor], "Settlement:Loan", loanId, "Repay", { repaymentCid: repayHolding.cid, creditScoreCid: cs, positionCids: positions.map((x) => x.cid) }, [op]);
     const csNow = (await this.acsAs(op, "Credit:CreditScore")).find((x) => x.arg.borrower === bor);
     return { loanId, status: "REPAID", newTier: csNow?.arg.tier ?? "Silver" };
   }
@@ -386,7 +387,8 @@ export class CantonLedger implements Ledger {
     // oldest and mis-decided liquidations. latestPrice reduces by asOf.
     const price = await this.latestPrice(inst);
     const cs = await this.ensureCreditScore(loan.arg.borrower);
-    await this.exercise([op], "Settlement:Loan", loanId, "Liquidate", { priceCid: price.cid, creditScoreCid: cs });
+    const positions = (await this.acsAs(op, "Settlement:LoanPosition")).filter((x) => x.arg.loanKey === loan.arg.loanKey);
+    await this.exercise([op], "Settlement:Loan", loanId, "Liquidate", { priceCid: price.cid, creditScoreCid: cs, positionCids: positions.map((x) => x.cid) });
     return { loanId, status: "LIQUIDATED" };
   }
 
@@ -719,14 +721,14 @@ export class CantonLedger implements Ledger {
     if (!pid) return { party, activeLends: [], activeLoans: [], completedLoans: [], pendingPayouts: [] };
     const name = nameOf(pid);
     const activeLends = (await this.acsAs(pid, "Lending:SealedBid")).map((x) => this.bidDto(x));
-    const loans = (await this.acsAs(pid, "Settlement:Loan")).map((x) => this.loanDto(x));
-    const activeLoans = loans
-      .filter((l) => l.ticks.some((t) => t.lender === name))
-      .map((l) => {
-        const mine = l.ticks.filter((t) => t.lender === name);
-        const owedToMe = mine.reduce((a, t) => a + t.amount + t.amount * t.rate, 0);
-        return { loanId: l.loanId, borrower: l.borrower, tier: l.tier, maturity: l.maturity, myTicks: mine, myPrincipal: mine.reduce((a, t) => a + t.amount, 0), owedToMe };
-      });
+    // Active loans come from the lender's PRIVATE LoanPosition receipts — the lender no
+    // longer observes the shared Loan (which would expose rival co-funders' rates).
+    const positions = (await this.acsAs(pid, "Settlement:LoanPosition")).filter((x) => x.arg.lender === pid);
+    const activeLoans = positions.map((x) => {
+      const amount = Number(x.arg.amount), rate = Number(x.arg.rate);
+      const owedToMe = amount + amount * rate;
+      return { loanId: x.arg.loanKey, borrower: nameOf(x.arg.borrower), maturity: x.arg.maturity, myPrincipal: amount, myRate: rate, owedToMe };
+    });
     const completedLoans: any[] = [];
     const pendingPayouts = activeLoans.map((l) => ({ loanId: l.loanId, borrower: l.borrower, amount: l.owedToMe, maturity: l.maturity }));
     return { party: name, activeLends, activeLoans, completedLoans, pendingPayouts };

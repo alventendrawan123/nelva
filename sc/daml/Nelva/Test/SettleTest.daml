@@ -106,8 +106,9 @@ testMatchAcceptVerifyGreen = do
   -- borrower repays: A owed 103 (100@3%), B owed 52.5 (50@5%); provide 160
   repayFunds <- submit p.custodian do
     createCmd Holding with custodian = p.custodian, owner = p.borrower, amount = 160.0, instrument = "USD", locker = None
+  posns <- map fst <$> query @LoanPosition p.operator
   submitMulti [p.borrower] [p.operator] do
-    exerciseCmd loan Repay with repaymentCid = repayFunds, creditScoreCid = cs0
+    exerciseCmd loan Repay with repaymentCid = repayFunds, creditScoreCid = cs0, positionCids = posns
 
   aPaid <- holdingTotal p.lenderA
   bPaid <- holdingTotal p.lenderB
@@ -189,7 +190,8 @@ testLiquidate = do
   -- price drop: health = 300 * 0.5 / 150 = 1.0 < 1.5 -> liquidatable
   price <- submit p.oracle do
     createCmd PriceUpdate with oracle = p.oracle, operator = p.operator, instrument = "USD", price = 0.5, asOf = now
-  submit p.operator do exerciseCmd loan Liquidate with priceCid = price, creditScoreCid = cs0
+  posns <- map fst <$> query @LoanPosition p.operator
+  submit p.operator do exerciseCmd loan Liquidate with priceCid = price, creditScoreCid = cs0, positionCids = posns
 
   -- distributable = 300 - 15 (5% fee) = 285 ; A 100/150*285 = 190 ; B 50/150*285 = 95
   aGot <- holdingTotal p.lenderA
@@ -212,7 +214,7 @@ testPuppetOracleRejected = do
   fake <- submit puppet do
     createCmd PriceUpdate with oracle = puppet, operator = p.operator, instrument = "USD", price = 0.0001, asOf = now
   submitMustFail p.operator do
-    exerciseCmd loan Liquidate with priceCid = fake, creditScoreCid = cs0
+    exerciseCmd loan Liquidate with priceCid = fake, creditScoreCid = cs0, positionCids = []
 
 -- H3 regression: a MATURED but HEALTHY loan is not fully seized — lenders get exactly what
 -- they are owed and the borrower gets the surplus back.
@@ -225,10 +227,30 @@ testMaturedHealthyLiquidate = do
   now2 <- getTime
   price <- submit p.oracle do
     createCmd PriceUpdate with oracle = p.oracle, operator = p.operator, instrument = "USD", price = 1.0, asOf = now2
-  submit p.operator do exerciseCmd loan Liquidate with priceCid = price, creditScoreCid = cs0
+  posns <- map fst <$> query @LoanPosition p.operator
+  submit p.operator do exerciseCmd loan Liquidate with priceCid = price, creditScoreCid = cs0, positionCids = posns
   -- lender A owed 100 + 3% = 103 from collateral; borrower keeps the 100 principal it drew
   -- plus the 300-103 = 197 collateral surplus -> 297 total. Lender B was never matched.
   aGot <- holdingTotal p.lenderA
   borGot <- holdingTotal p.borrower
   aGot === 103.0
   borGot === 297.0
+
+-- Privacy regression: a co-funding lender sees ONLY their own position, never a rival's
+-- rate, and cannot read the shared Loan at all.
+testCoFunderCannotSeeRivalRate : Script ()
+testCoFunderCannotSeeRivalRate = do
+  p <- setupParties
+  now <- getTime
+  (_, _) <- acceptedLoan p 150.0 Bronze 300.0 now   -- A 100 @ 3% + B 50 @ 5%
+  -- LenderB's visible positions: only B's own (rate 0.05); A's 0.03 is NOT projected to B.
+  bPositions <- query @LoanPosition p.lenderB
+  case bPositions of
+    [(_, bpos)] -> do
+      bpos.lender === p.lenderB
+      bpos.rate === 0.05
+    _ -> abort "LenderB must see exactly one position (their own)"
+  assertMsg "B must not see any rival's rate" (not (any (\(_, lp) -> lp.rate == 0.03) bPositions))
+  -- LenderB is no longer an observer of the Loan, so it cannot read the tick set at all.
+  bLoans <- query @Loan p.lenderB
+  bLoans === []
