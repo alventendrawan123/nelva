@@ -1,6 +1,12 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { API_BASE_URL } from "@/config/env";
 import {
   cantonWalletEnabled,
@@ -78,7 +84,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       }).catch(() => {});
       setPartyId(p);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not connect Canton wallet.");
+      setError(
+        e instanceof Error ? e.message : "Could not connect Canton wallet.",
+      );
     } finally {
       setConnecting(false);
     }

@@ -10,7 +10,12 @@ type Config = {
   packageId: string;
   parties: { operator: string; auditor: string; custodian: string };
 };
-type Holding = { cid: string; amount: number; instrument: string; locked: boolean };
+type Holding = {
+  cid: string;
+  amount: number;
+  instrument: string;
+  locked: boolean;
+};
 
 const DEADLINE = "2030-01-01T00:00:00Z";
 let cachedConfig: Config | null = null;
@@ -57,14 +62,17 @@ async function holdingsUntil(
 }
 
 /** Place a real sealed bid: split (if needed) -> lock -> create SealedBid, all wallet-signed. */
-export async function placeBidAsWallet(amount: number, rate: number): Promise<void> {
+export async function placeBidAsWallet(
+  amount: number,
+  rate: number,
+): Promise<void> {
   const party = activeParty();
   if (!party) throw new Error("Wallet not connected.");
   const { packageId, parties } = await getConfig();
   const holdingTid = `${packageId}:Nelva.Asset:Holding`;
   const bidTid = `${packageId}:Nelva.Lending:SealedBid`;
 
-  let holdings = await walletHoldings();
+  const holdings = await walletHoldings();
   const source = holdings.find((h) => !h.locked && h.amount >= amount);
   if (!source) throw new Error("Not enough available balance for this bid.");
 
@@ -73,18 +81,38 @@ export async function placeBidAsWallet(amount: number, rate: number): Promise<vo
   if (source.amount > amount) {
     const before = new Set(holdings.map((h) => h.cid));
     await submit([
-      { ExerciseCommand: { templateId: holdingTid, contractId: source.cid, choice: "Split", choiceArgument: { splitAmount: String(amount) } } },
+      {
+        ExerciseCommand: {
+          templateId: holdingTid,
+          contractId: source.cid,
+          choice: "Split",
+          choiceArgument: { splitAmount: String(amount) },
+        },
+      },
     ]);
-    const piece = await holdingsUntil((hs) => hs.find((h) => !before.has(h.cid) && !h.locked && near(h.amount, amount)));
+    const piece = await holdingsUntil((hs) =>
+      hs.find((h) => !before.has(h.cid) && !h.locked && near(h.amount, amount)),
+    );
     bidCid = piece.cid;
   }
 
   // 2. lock the bid amount to the operator (pre-authorization for matching)
   const beforeLock = new Set((await walletHoldings()).map((h) => h.cid));
   await submit([
-    { ExerciseCommand: { templateId: holdingTid, contractId: bidCid, choice: "Lock", choiceArgument: { newLocker: parties.operator } } },
+    {
+      ExerciseCommand: {
+        templateId: holdingTid,
+        contractId: bidCid,
+        choice: "Lock",
+        choiceArgument: { newLocker: parties.operator },
+      },
+    },
   ]);
-  const locked = await holdingsUntil((hs) => hs.find((h) => h.locked && !beforeLock.has(h.cid) && near(h.amount, amount)));
+  const locked = await holdingsUntil((hs) =>
+    hs.find(
+      (h) => h.locked && !beforeLock.has(h.cid) && near(h.amount, amount),
+    ),
+  );
 
   // 3. create the sealed bid
   await submit([
@@ -119,25 +147,51 @@ export async function borrowAsWallet(
   const holdingTid = `${packageId}:Nelva.Asset:Holding`;
   const borrowTid = `${packageId}:Nelva.Lending:BorrowIntent`;
 
-  let holdings = await walletHoldings();
-  const source = holdings.find((h) => !h.locked && h.amount >= collateralAmount);
+  const holdings = await walletHoldings();
+  const source = holdings.find(
+    (h) => !h.locked && h.amount >= collateralAmount,
+  );
   if (!source) throw new Error("Not enough collateral available.");
 
   let collateralCid = source.cid;
   if (source.amount > collateralAmount) {
     const before = new Set(holdings.map((h) => h.cid));
     await submit([
-      { ExerciseCommand: { templateId: holdingTid, contractId: source.cid, choice: "Split", choiceArgument: { splitAmount: String(collateralAmount) } } },
+      {
+        ExerciseCommand: {
+          templateId: holdingTid,
+          contractId: source.cid,
+          choice: "Split",
+          choiceArgument: { splitAmount: String(collateralAmount) },
+        },
+      },
     ]);
-    const piece = await holdingsUntil((hs) => hs.find((h) => !before.has(h.cid) && !h.locked && near(h.amount, collateralAmount)));
+    const piece = await holdingsUntil((hs) =>
+      hs.find(
+        (h) =>
+          !before.has(h.cid) && !h.locked && near(h.amount, collateralAmount),
+      ),
+    );
     collateralCid = piece.cid;
   }
 
   const beforeLock = new Set((await walletHoldings()).map((h) => h.cid));
   await submit([
-    { ExerciseCommand: { templateId: holdingTid, contractId: collateralCid, choice: "Lock", choiceArgument: { newLocker: parties.operator } } },
+    {
+      ExerciseCommand: {
+        templateId: holdingTid,
+        contractId: collateralCid,
+        choice: "Lock",
+        choiceArgument: { newLocker: parties.operator },
+      },
+    },
   ]);
-  const locked = await holdingsUntil((hs) => hs.find((h) => h.locked && !beforeLock.has(h.cid) && near(h.amount, collateralAmount)));
+  const locked = await holdingsUntil((hs) =>
+    hs.find(
+      (h) =>
+        h.locked && !beforeLock.has(h.cid) && near(h.amount, collateralAmount),
+    ),
+  );
 
   await submit([
     {
@@ -200,7 +254,9 @@ export async function repayAsWallet(loanId: string): Promise<void> {
 
   // payLenders splits `owed` out of one holding and returns the change, so the
   // source must be a single unlocked holding strictly greater than owed.
-  const source = (await walletHoldings()).find((h) => !h.locked && h.amount > owed);
+  const source = (await walletHoldings()).find(
+    (h) => !h.locked && h.amount > owed,
+  );
   if (!source) {
     throw new Error(
       `Not enough liquid balance to repay — need a single holding above ${owed.toFixed(2)} nUSD.`,
@@ -214,7 +270,10 @@ export async function repayAsWallet(loanId: string): Promise<void> {
           templateId: `${packageId}:Nelva.Settlement:Loan`,
           contractId: loanId,
           choice: "Repay",
-          choiceArgument: { repaymentCid: source.cid, creditScoreCid: info.creditScoreCid },
+          choiceArgument: {
+            repaymentCid: source.cid,
+            creditScoreCid: info.creditScoreCid,
+          },
         },
       },
     ],

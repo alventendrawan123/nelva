@@ -1,9 +1,9 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { type ReactNode, useEffect } from "react";
+import type { ReactNode } from "react";
 import { TabSwitcher } from "@/components/ui/TabSwitcher";
-import { type HomeTab, HOME_TABS } from "@/config/nav";
+import { HOME_TABS, type HomeTab } from "@/config/nav";
 import { useUI } from "@/context/UIContext";
 
 type HomeTabsProps = {
@@ -13,21 +13,12 @@ type HomeTabsProps = {
 export function HomeTabs({ panels }: HomeTabsProps) {
   const { activeHomeTab: active, setActiveHomeTab: setActive } = useUI();
   const prefersReducedMotion = useReducedMotion();
-  // single-user: every tab is always available; each panel gates its own actions
-  // behind Connect Wallet. Lens stays a public transparency view.
-  const allowedTabs: HomeTab[] = [...HOME_TABS];
-
-  useEffect(() => {
-    if (!allowedTabs.includes(active)) {
-      setActive(allowedTabs[0]);
-    }
-  }, [allowedTabs, active, setActive]);
 
   return (
     <div>
       <div className="mx-auto max-w-2xl" data-tour="home-tabs">
         <TabSwitcher
-          options={allowedTabs}
+          options={HOME_TABS}
           active={active}
           onChange={setActive}
           ariaLabel="Home actions"

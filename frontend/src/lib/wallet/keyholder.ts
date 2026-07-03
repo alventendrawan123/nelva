@@ -19,7 +19,8 @@ const toHex = (b: Uint8Array) =>
   Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 const fromHex = (h: string) => {
   const a = new Uint8Array(h.length / 2);
-  for (let i = 0; i < a.length; i++) a[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+  for (let i = 0; i < a.length; i++)
+    a[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
   return a;
 };
 const toB64 = (b: Uint8Array) => {

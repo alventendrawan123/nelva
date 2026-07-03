@@ -44,7 +44,10 @@ export async function connectWallet(partyHint: string): Promise<string> {
   }
 
   const publicKey = await publicKeyDerB64();
-  const onb = await call<OnboardResponse>("/wallet/onboard", { partyHint, publicKey });
+  const onb = await call<OnboardResponse>("/wallet/onboard", {
+    partyHint,
+    publicKey,
+  });
   const multiHashSignature = await signHashB64(onb.multiHash);
   await call("/wallet/allocate", {
     topologyTransactions: onb.topologyTransactions,
@@ -64,7 +67,11 @@ export async function submitAsWallet(
   const fingerprint = wallet.fingerprint();
   if (!party || !fingerprint) throw new Error("Wallet not connected.");
 
-  const prep = await call<PrepareResponse>("/wallet/prepare", { party, commands, disclosedContracts });
+  const prep = await call<PrepareResponse>("/wallet/prepare", {
+    party,
+    commands,
+    disclosedContracts,
+  });
   const signature = await signHashB64(prep.preparedTransactionHash);
   await call("/wallet/execute", {
     party,

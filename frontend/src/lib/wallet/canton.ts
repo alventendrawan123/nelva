@@ -22,7 +22,12 @@ export const cantonWalletEnabled = (): boolean => Boolean(CANTON_GATEWAY_URL);
 
 type Sdk = typeof import("@canton-network/dapp-sdk");
 let sdkPromise: Promise<Sdk> | null = null;
-const loadSdk = (): Promise<Sdk> => (sdkPromise ??= import("@canton-network/dapp-sdk"));
+const loadSdk = (): Promise<Sdk> => {
+  if (!sdkPromise) {
+    sdkPromise = import("@canton-network/dapp-sdk");
+  }
+  return sdkPromise;
+};
 
 let initialized = false;
 

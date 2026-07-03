@@ -8,4 +8,5 @@ export const API_TIMEOUT_MS = 8000;
 // Hosted Wallet Gateway URL for the CIP-0103 dApp SDK (RemoteAdapter). When set,
 // a real Canton wallet appears in the connect picker alongside the embedded one.
 // Unset (e.g. on the sandbox demo) -> only the embedded wallet is offered.
-export const CANTON_GATEWAY_URL = process.env.NEXT_PUBLIC_CANTON_GATEWAY_URL ?? "";
+export const CANTON_GATEWAY_URL =
+  process.env.NEXT_PUBLIC_CANTON_GATEWAY_URL ?? "";

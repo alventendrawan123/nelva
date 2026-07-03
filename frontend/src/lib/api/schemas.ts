@@ -79,31 +79,63 @@ export const lensViewSchema = z.object({
     })
     .nullable(),
   perspectives: z.object({
-    lender: z.object({
-      party: z.string().nullable(),
-      canSee: z.array(z.string()),
-      bids: z.array(bidSchema),
-    }),
-    borrower: z.object({
-      party: z.string().nullable(),
-      canSee: z.array(z.string()),
-      proposal: matchProposalSchema.nullable(),
-    }),
-    operator: z.object({
-      canSee: z.array(z.string()),
-      bids: z.array(bidSchema),
-      proposal: matchProposalSchema.nullable(),
-    }),
-    auditor: z.object({
-      canSee: z.array(z.string()),
-      bids: z.array(bidSchema),
-      badge: auditBadgeSchema.nullable(),
-    }),
+    lender: z
+      .object({
+        party: z.string().nullable(),
+        canSee: z.array(z.string()),
+        bids: z.array(bidSchema),
+      })
+      .optional(),
+    borrower: z
+      .object({
+        party: z.string().nullable(),
+        canSee: z.array(z.string()),
+        proposal: matchProposalSchema.nullable(),
+      })
+      .optional(),
+    operator: z
+      .object({
+        canSee: z.array(z.string()),
+        bids: z.array(bidSchema),
+        proposal: matchProposalSchema.nullable(),
+      })
+      .optional(),
+    auditor: z
+      .object({
+        canSee: z.array(z.string()),
+        bids: z.array(bidSchema),
+        badge: auditBadgeSchema.nullable(),
+      })
+      .optional(),
     outsider: z.object({
       canSee: z.array(z.string()),
       status: statusSchema,
     }),
   }),
+});
+
+export const lenderPositionSchema = z.object({
+  loanId: z.string(),
+  borrower: z.string(),
+  maturity: z.string(),
+  myPrincipal: z.number(),
+  myRate: z.number(),
+  owedToMe: z.number(),
+});
+
+export const lenderStatusSchema = z.object({
+  party: z.string(),
+  activeLends: z.array(bidSchema),
+  activeLoans: z.array(lenderPositionSchema),
+  completedLoans: z.array(z.unknown()),
+  pendingPayouts: z.array(
+    z.object({
+      loanId: z.string(),
+      borrower: z.string(),
+      amount: z.number(),
+      maturity: z.string(),
+    }),
+  ),
 });
 
 export const holdingSchema = z.object({
@@ -129,3 +161,5 @@ export type Status = z.infer<typeof statusSchema>;
 export type LensView = z.infer<typeof lensViewSchema>;
 export type Holding = z.infer<typeof holdingSchema>;
 export type Me = z.infer<typeof meSchema>;
+export type LenderPosition = z.infer<typeof lenderPositionSchema>;
+export type LenderStatus = z.infer<typeof lenderStatusSchema>;

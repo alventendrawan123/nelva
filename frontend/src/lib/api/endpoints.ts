@@ -8,14 +8,16 @@ import {
   borrowIntentSchema,
   type Holding,
   holdingSchema,
+  type LenderStatus,
   type LensView,
   type Loan,
+  lenderStatusSchema,
   lensViewSchema,
   loanSchema,
-  type Me,
-  meSchema,
   type MatchProposal,
+  type Me,
   matchProposalSchema,
+  meSchema,
   type Status,
   statusSchema,
 } from "@/lib/api/schemas";
@@ -108,8 +110,15 @@ export const api = {
       schema: auditBadgeSchema.array(),
     }),
 
-  lens: (proposalId: string) =>
+  lenderStatus: (party: string) =>
+    call<LenderStatus>(`/lender-status/${party}`, {
+      party,
+      schema: lenderStatusSchema,
+    }),
+
+  lens: (proposalId: string, viewer: string = OPERATOR) =>
     call<LensView>(`/lens?proposalId=${proposalId}`, {
+      party: viewer,
       schema: lensViewSchema,
     }),
 };

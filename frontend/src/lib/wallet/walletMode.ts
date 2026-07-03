@@ -43,6 +43,7 @@ export function clearActiveWallet(): void {
 
 /** The party id of whichever wallet is connected, or null. */
 export function activeParty(): string | null {
-  if (getWalletKind() === "canton") return ls()?.getItem(CANTON_PARTY_KEY) ?? null;
+  if (getWalletKind() === "canton")
+    return ls()?.getItem(CANTON_PARTY_KEY) ?? null;
   return wallet.party();
 }
