@@ -74,14 +74,14 @@ export class MockLedger implements Ledger {
     // full multi-perspective teaching view; borrower sees own proposal; lender sees own
     // bids; anonymous/outsider gets status only.
     const full = S.lens(proposalId);
+    const privileged = role === "operator" || role === "auditor";
+    // trusted roles get the full teaching view (all perspectives); others only their slice
+    if (privileged) return full;
     const perspectives: any = { outsider: full.perspectives.outsider };
-    if (role === "operator") perspectives.operator = full.perspectives.operator;
-    if (role === "auditor") perspectives.auditor = full.perspectives.auditor;
-    const isOwnerBorrower = viewer && full.perspectives.borrower.party === viewer;
+    const isOwnerBorrower = !!(viewer && full.perspectives.borrower.party === viewer);
     if (isOwnerBorrower) perspectives.borrower = full.perspectives.borrower;
     if (role === "lender" && viewer) perspectives.lender = { party: viewer, canSee: ["ownBid"], bids: S.db.bids.filter((b) => b.lender === viewer) };
-    const privileged = role === "operator" || role === "auditor";
-    return { subject: privileged || isOwnerBorrower ? full.subject : null, perspectives };
+    return { subject: isOwnerBorrower ? full.subject : null, perspectives };
   }
 
   async holdings(viewer?: string): Promise<HoldingView[]> {

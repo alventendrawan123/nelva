@@ -418,30 +418,40 @@ export class CantonLedger implements Ledger {
     const parg = p?.arg;
     const subject = parg ? { proposalId, borrower: nameOf(parg.borrower), principal: Number(parg.principal) } : null;
     const outsider = { canSee: ["status"], status: await this.status() };
-    const perspectives: any = { outsider };
 
-    if (role === "operator") {
+    // Operator/Auditor are trusted to see everything (they already can via their ACS), so
+    // they get the FULL teaching view — all five perspectives side by side. This restores
+    // the hero Lens demo WITHOUT re-opening the anonymous leak (anon still gets outsider-only).
+    if (privileged) {
       const allBids = await this.acsAs(op, "Lending:SealedBid");
-      perspectives.operator = { canSee: ["allBids", "proposal"], bids: allBids.map((x) => this.bidDto(x)), proposal: p ? this.propDto(p) : null };
-    }
-    if (role === "auditor") {
-      const allBids = await this.acsAs(aud, "Lending:SealedBid");
+      const exLender: string | undefined = parg?.matchedTicks?.[0]?.lender;
+      const lenderBids = exLender ? await this.acsAs(exLender, "Lending:SealedBid") : [];
       const badges = await this.acsAs(aud, "Settlement:AuditBadge");
-      // pick the NEWEST badge for this proposalId (ACS is append-only; .find() returned the oldest).
       const mine = badges.filter((x) => x.arg.proposalId === parg?.proposalId);
       const badge = mine.length ? mine[mine.length - 1] : null;
-      perspectives.auditor = { canSee: ["allBids", "verdict"], bids: allBids.map((x) => this.bidDto(x)), badge: badge ? this.badgeDto(badge) : null };
+      return {
+        subject,
+        perspectives: {
+          lender: { party: exLender ? nameOf(exLender) : null, canSee: ["ownBid"], bids: lenderBids.map((x) => this.bidDto(x)) },
+          borrower: { party: parg ? nameOf(parg.borrower) : null, canSee: ["proposal"], proposal: p ? this.propDto(p) : null },
+          operator: { canSee: ["allBids", "proposal"], bids: allBids.map((x) => this.bidDto(x)), proposal: p ? this.propDto(p) : null },
+          auditor: { canSee: ["allBids", "verdict"], bids: allBids.map((x) => this.bidDto(x)), badge: badge ? this.badgeDto(badge) : null },
+          outsider,
+        },
+      };
     }
-    // A borrower viewing their OWN proposal sees the proposal; a lender sees only their own bids.
-    if (viewer && parg && nameOf(parg.borrower) === viewer) {
+
+    // Non-privileged callers only ever get their own slice (never rivals' rates).
+    const perspectives: any = { outsider };
+    const isOwnerBorrower = !!(viewer && parg && nameOf(parg.borrower) === viewer);
+    if (isOwnerBorrower) {
       perspectives.borrower = { party: viewer, canSee: ["proposal"], proposal: p ? this.propDto(p) : null };
     }
     if (viewer && role === "lender") {
       const own = await this.acsAs(await this.ensureParty(viewer), "Lending:SealedBid");
       perspectives.lender = { party: viewer, canSee: ["ownBid"], bids: own.map((x) => this.bidDto(x)) };
     }
-    // Non-privileged callers must not learn the borrower/principal of an arbitrary proposal.
-    return { subject: privileged ? subject : (viewer && parg && nameOf(parg.borrower) === viewer ? subject : null), perspectives };
+    return { subject: isOwnerBorrower ? subject : null, perspectives };
   }
 
   async status() {
