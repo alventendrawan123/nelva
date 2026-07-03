@@ -7,8 +7,9 @@
 -- black-box (e.g. TEE) matcher that is never re-executed.
 module Nelva.Settlement where
 
-import DA.Time (addRelTime, days)
+import DA.Time (addRelTime, days, hours)
 import DA.Optional (fromSome)
+import DA.List (unique, find)
 import Nelva.Asset
 import Nelva.Lending
 import Nelva.Match
@@ -36,6 +37,7 @@ template PriceUpdate
   where
     signatory oracle
     observer operator
+    ensure price > 0.0   -- a non-positive price is never a valid quote (blocks price=0 abuse)
 
 -- Oracle-priced swap venue: no AMM curve, no owner-price drain.
 -- No AMM curve, no pre-funded inventory: the swapper's UNLOCKED in-Holding moves to
@@ -64,12 +66,16 @@ template SwapPool
         inH  <- fetch inCid
         pIn  <- fetch priceInCid
         pOut <- fetch priceOutCid
+        now  <- getTime
         assertMsg "swapper does not own the in-holding" (inH.owner == swapper)
         assertMsg "in-holding is locked" (inH.locker == None)
         assertMsg "priceIn instrument mismatch"  (pIn.instrument == inH.instrument)
         assertMsg "priceOut instrument mismatch" (pOut.instrument == instrumentOut)
         assertMsg "non-positive priceIn"  (pIn.price > 0.0)
         assertMsg "non-positive priceOut" (pOut.price > 0.0)
+        -- reject stale prices so a swapper can't replay an old favorable quote forever
+        assertMsg "priceIn stale"  (pIn.asOf  > addRelTime now (hours (-24)))
+        assertMsg "priceOut stale" (pOut.asOf > addRelTime now (hours (-24)))
         let amountOut = inH.amount * pIn.price / pOut.price
         assertMsg "amountOut rounds to zero" (amountOut > 0.0)
         assertMsg "slippage: amountOut < minAmountOut" (amountOut >= minAmountOut)
@@ -93,6 +99,7 @@ template MatchProposal
     tier : Tier
     matchedTicks : [MatchedTick]
     inputBidCids : [ContractId SealedBid]   -- FULL set incl losers (for audit)
+    roundBorrows : [BorrowInput]            -- ALL borrows that competed in this round (for audit context)
     borrowCid : ContractId BorrowIntent
     collateralCid : ContractId Holding
     collateralAmount : Numeric 10
@@ -118,7 +125,7 @@ template MatchProposal
               (\t -> exercise t.bidCid DrawForMatch with
                        matchedRate = t.rate
                        matchedAmount = t.amount
-                       recipient = borrower)
+                       borrower)
               matchedTicks
         escrow <- exercise collateralCid DrawLocked with newOwner = operator
         archive borrowCid   -- consume the matched intent so it can't be re-matched
@@ -143,12 +150,17 @@ template MatchProposal
     choice Reject : ()
       controller borrower
       do
-        (_slash, remOpt) <- exercise collateralCid DrawLockedAmount with
-          newOwner = operator
-          drawAmount = collateralAmount * 0.05
-        case remOpt of
-          Some rem -> do _ <- exercise rem Unlock; pure ()
-          None -> pure ()
+        let slash = collateralAmount * 0.05
+        if slash <= 0.0
+          -- slash rounds to 0 at Numeric 10: return all collateral instead of aborting
+          then do _ <- exercise collateralCid Unlock; pure ()
+          else do
+            (_slash, remOpt) <- exercise collateralCid DrawLockedAmount with
+              newOwner = operator
+              drawAmount = slash
+            case remOpt of
+              Some rem -> do _ <- exercise rem Unlock; pure ()
+              None -> pure ()
         -- Consume the matched intent too. Without this the BorrowIntent survives with a
         -- collateralCid that Reject just archived; the matcher then re-includes it and
         -- RunMatch's `fetch bi.collateralCid` aborts the ENTIRE round (matching wedged
@@ -221,8 +233,11 @@ template Loan
         pu <- fetch priceCid
         now <- getTime
         assertMsg "wrong instrument" (pu.instrument == instrument)
-        let health = (collateralAmount * pu.price) / principal
-        assertMsg "loan still healthy and not matured" (health < 1.5 || now > maturity)
+        let matured = now > maturity
+            health = (collateralAmount * pu.price) / principal
+        -- Health-based liquidation must use a FRESH price so a stale low print can't be
+        -- replayed to seize a currently-healthy loan. The maturity path is price-independent.
+        assertMsg "loan still healthy or price stale" (matured || (health < 1.5 && pu.asOf > addRelTime now (hours (-24))))
         let distributable = collateralAmount - (collateralAmount * 0.05)
             shares = sharesWithDust distributable principal ticks
         distribute collateralCid shares    -- leftover (the 5% fee) stays with operator
@@ -243,16 +258,30 @@ template MatchRound
       with
         bidCids : [ContractId SealedBid]
         borrowCids : [ContractId BorrowIntent]
+        creditScoreCids : [ContractId CreditScore]   -- operator-signed scores, to validate each borrow's tier
       controller operator
       do
         now <- getTime
         bids <- mapA (\cid -> do b <- fetch cid; pure (cid, b)) bidCids
         borrows <- mapA (\cid -> do b <- fetch cid; pure (cid, b)) borrowCids
+        scores <- mapA fetch creditScoreCids
+        -- app-assigned ids must be unique in a round: a duplicate bidId collapses capacity
+        -- in the matcher's Map.fromList (last-wins) and misroutes ticks.
+        assertMsg "duplicate bidId in round" (unique (map (\(_, b) -> b.bidId) bids))
+        assertMsg "duplicate borrowId in round" (unique (map (\(_, b) -> b.borrowId) borrows))
+        -- TIER BINDING: only match a borrow whose self-declared tier equals its
+        -- operator-signed CreditScore tier. A borrower who lies (e.g. picks Platinum for
+        -- 1.2x collateral) has no matching score and is silently excluded — no under-
+        -- collateralized loan can form. Honest borrows (BE keeps tier == score) pass.
+        let tierOk bi = case find (\s -> s.borrower == bi.borrower && s.operator == operator && s.tier == bi.tier) scores of
+                          Some _ -> True
+                          None -> False
+            validBorrows = filter (\(_, bi) -> tierOk bi) borrows
         let bidInputs = map (\(_, b) -> bidToInput b) bids
-            borrowInputs = map (\(_, b) -> borrowToInput b) borrows
+            borrowInputs = map (\(_, b) -> borrowToInput b) validBorrows
             result = runDeterministicMatch bidInputs borrowInputs
             cidByBidId = map (\(cid, b) -> (b.bidId, cid)) bids
-            borrowByBorrowId = map (\(cid, b) -> (b.borrowId, (cid, b))) borrows
+            borrowByBorrowId = map (\(cid, b) -> (b.borrowId, (cid, b))) validBorrows
         mapA
           (\f -> do
             let mtks = map
@@ -272,6 +301,7 @@ template MatchRound
               tier = bi.tier
               matchedTicks = mtks
               inputBidCids = bidCids
+              roundBorrows = borrowInputs
               borrowCid = bcid
               collateralCid = bi.collateralCid
               collateralAmount = coll.amount
@@ -297,14 +327,19 @@ template VerifyRequest
         p <- fetch proposalCid
         bids <- mapA (\cid -> fetch cid) p.inputBidCids
         bi <- fetch p.borrowCid
+        -- Re-run the matcher over the SAME joint context RunMatch used (all borrows that
+        -- competed for the shared bid capacity), then select the fill for THIS borrow.
+        -- Recomputing a single borrow in isolation over full capacity would diverge from
+        -- the real multi-borrow round -> false RED on honest matches / false GREEN on cheats.
         let bidInputs = map bidToInput bids
-            recomputed = runDeterministicMatch bidInputs [borrowToInput bi]
-            expectedTicks = case recomputed.fills of
-                              (f :: _) -> f.ticks
-                              [] -> []
-            expectedBlended = case recomputed.fills of
-                                (f :: _) -> f.blendedRate
-                                [] -> 0.0
+            recomputed = runDeterministicMatch bidInputs p.roundBorrows
+            thisFill = find (\f -> f.borrowId == bi.borrowId) recomputed.fills
+            expectedTicks = case thisFill of
+                              Some f -> f.ticks
+                              None -> []
+            expectedBlended = case thisFill of
+                                Some f -> f.blendedRate
+                                None -> 0.0
             publishedTicks = map (\mt -> Tick mt.lender mt.bidId mt.amount mt.rate) p.matchedTicks
             ok = expectedTicks == publishedTicks && expectedBlended == p.blendedRate
         create AuditBadge with
@@ -355,9 +390,14 @@ sharesWithDust distributable totalPrincipal ticks =
 -- stays owned by the holder (operator).
 distribute : ContractId Holding -> [(Party, Numeric 10)] -> Update ()
 distribute _ [] = pure ()
-distribute remCid ((lender, share) :: rest) = do
-  (piece, remOpt) <- exercise remCid Split with splitAmount = share
-  _ <- exercise piece Transfer with newOwner = lender
-  case remOpt of
-    Some r -> distribute r rest
-    None -> pure ()
+distribute remCid ((lender, share) :: rest) =
+  -- skip zero/negative shares (Split asserts > 0.0, which would otherwise abort the whole
+  -- Liquidate when a tiny pro-rata share rounds to 0.0 at Numeric 10).
+  if share <= 0.0
+    then distribute remCid rest
+    else do
+      (piece, remOpt) <- exercise remCid Split with splitAmount = share
+      _ <- exercise piece Transfer with newOwner = lender
+      case remOpt of
+        Some r -> distribute r rest
+        None -> pure ()

@@ -37,12 +37,21 @@ template SealedBid
       with
         matchedRate : Numeric 10
         matchedAmount : Numeric 10
-        recipient : Party
-      controller matchingOperator
+        borrower : Party
+      -- The borrower CO-AUTHORIZES. The operator alone must NOT be able to redirect a
+      -- lender's locked funds to an arbitrary recipient (that would be exactly the
+      -- operator custody the design claims to avoid). Funds can only move to the borrower,
+      -- and only with the borrower's consent — present because Accept (controller=borrower)
+      -- is the sole caller. A standalone operator submission now fails for lack of borrower authority.
+      controller matchingOperator, borrower
       do
+        -- No self-drain: the operator cannot name itself the recipient (which would
+        -- collapse the two controllers to just the operator and let it move the
+        -- lender's locked funds to itself with no borrower, no loan, no repayment claim).
+        assertMsg "recipient must not be the matching operator" (borrower /= matchingOperator)
         assertMsg "matched rate exceeds bid rate" (matchedRate <= bidRate)
         assertMsg "matched amount exceeds bid" (matchedAmount > 0.0 && matchedAmount <= amount)
-        (drawn, remOpt) <- exercise holdingCid DrawLockedAmount with newOwner = recipient, drawAmount = matchedAmount
+        (drawn, remOpt) <- exercise holdingCid DrawLockedAmount with newOwner = borrower, drawAmount = matchedAmount
         case remOpt of
           Some rem -> do
             _ <- exercise rem Unlock

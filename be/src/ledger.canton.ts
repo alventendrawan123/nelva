@@ -11,7 +11,7 @@ import { cheatMatch, type BidInput } from "./match.js";
 
 const BASE = process.env.JSON_LEDGER_API ?? "http://localhost:7575";
 // package id of the deployed DAR — UPDATE on every SC rebuild (dpm damlc inspect-dar --json)
-const PKG = process.env.NELVA_PACKAGE_ID ?? "627e1231915eca8a13312bed19a2aa7961880c0e2c3f400600cadf9b5239f145";
+const PKG = process.env.NELVA_PACKAGE_ID ?? "15f0d840a7f8235b13a619fa3fdcf91ad8796fbcfec0fdaa6870ec37150fd4b8";
 const USER = process.env.LEDGER_USER_ID ?? "nelva-be";
 const DEADLINE = "2030-01-01T00:00:00Z"; // default far-future maturity for loans/seeds
 // A SealedBid's withdraw deadline = now + durationDays. Using the hardcoded far-future
@@ -326,8 +326,11 @@ export class CantonLedger implements Ledger {
       const freeBids = bids.filter((b) => !usedBids.has(b.cid));
       const freeBorrows = borrows.filter((b) => !usedBorrows.has(b.cid) && liveHoldings.has(b.arg.collateralCid));
       if (!freeBids.length || !freeBorrows.length) return [];
+      // RunMatch now validates each borrow's declared tier against an operator-signed
+      // CreditScore; pass all known scores so honest borrows (tier == score) match.
+      const scores = await this.acsAs(op, "Credit:CreditScore");
       const rnd = this.made(await this.create([op], "Settlement:MatchRound", { operator: op, auditor: aud }), "Settlement:MatchRound");
-      const tree = await this.exercise([op], "Settlement:MatchRound", rnd.cid, "RunMatch", { bidCids: freeBids.map((b) => b.cid), borrowCids: freeBorrows.map((b) => b.cid) });
+      const tree = await this.exercise([op], "Settlement:MatchRound", rnd.cid, "RunMatch", { bidCids: freeBids.map((b) => b.cid), borrowCids: freeBorrows.map((b) => b.cid), creditScoreCids: scores.map((s) => s.cid) });
       return this.allMade(tree, "Settlement:MatchProposal").map((x) => this.propDto(x));
     } finally {
       this._matching = false;
@@ -356,7 +359,9 @@ export class CantonLedger implements Ledger {
     const tree = await this.create([op], "Settlement:MatchProposal", {
       operator: op, borrower: ba.borrower, auditor: aud, lenders: f.ticks.map((t) => t.lender),
       proposalId: "P-CHEAT", principal: String(f.principal), blendedRate: String(f.blendedRate), tier: ba.tier,
-      matchedTicks: ticks, inputBidCids: bids.map((x) => x.cid), borrowCid: b.cid,
+      matchedTicks: ticks, inputBidCids: bids.map((x) => x.cid),
+      roundBorrows: [{ borrowId: ba.borrowId, borrower: ba.borrower, amount: String(ba.amount), maxRate: String(ba.maxRate) }],
+      borrowCid: b.cid,
       collateralCid: dummy.cid, collateralAmount: "1.0", requiredCollateral: "0.0", instrument: "USD", maturity: DEADLINE,
     });
     return [this.propDto(this.made(tree, "Settlement:MatchProposal"))];

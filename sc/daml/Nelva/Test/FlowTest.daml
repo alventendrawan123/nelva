@@ -29,9 +29,10 @@ testLockBidDraw = do
       lender, matchingOperator = operator, auditor, bidId = "bidA", holdingCid = lockedCash
       amount = 100.0, bidRate = 0.05, instrument = "USD", deadline = addRelTime now (days 1)
 
-  -- operator matches at 0.04 (<= 0.05), full amount, and moves the funds to the borrower
-  drawn <- submit operator do
-    exerciseCmd bid DrawForMatch with matchedRate = 0.04, matchedAmount = 100.0, recipient = borrower
+  -- operator matches at 0.04 (<= 0.05), full amount, and moves the funds to the borrower.
+  -- DrawForMatch now requires borrower co-authority (operator alone can no longer drain).
+  drawn <- submitMulti [operator, borrower] [] do
+    exerciseCmd bid DrawForMatch with matchedRate = 0.04, matchedAmount = 100.0, borrower
 
   Some bh <- queryContractId borrower drawn
   bh.owner === borrower
@@ -56,5 +57,25 @@ testDrawAboveCapFails = do
       lender, matchingOperator = operator, auditor, bidId = "bidX", holdingCid = lockedCash
       amount = 50.0, bidRate = 0.03, instrument = "USD", deadline = addRelTime now (days 1)
 
+  -- fails on the rate-cap assert (both authorities present, so it's not an auth failure)
+  submitMultiMustFail [operator, borrower] [] do
+    exerciseCmd bid DrawForMatch with matchedRate = 0.05, matchedAmount = 50.0, borrower
+
+-- C1 regression: the operator ALONE can no longer drain a lender's locked bid.
+testOperatorCannotDrainAlone : Script ()
+testOperatorCannotDrainAlone = do
+  custodian <- allocateParty "Custodian3"
+  lender <- allocateParty "Lender3"
+  operator <- allocateParty "Operator3"
+  auditor <- allocateParty "Auditor3"
+  now <- getTime
+  cash <- submit custodian do
+    createCmd Holding with custodian, owner = lender, amount = 100.0, instrument = "USD", locker = None
+  lockedCash <- submit lender do exerciseCmd cash Lock with newLocker = operator
+  bid <- submit lender do
+    createCmd SealedBid with
+      lender, matchingOperator = operator, auditor, bidId = "bidZ", holdingCid = lockedCash
+      amount = 100.0, bidRate = 0.05, instrument = "USD", deadline = addRelTime now (days 1)
+  -- operator alone, trying to redirect the funds to itself, must FAIL (needs borrower auth)
   submitMustFail operator do
-    exerciseCmd bid DrawForMatch with matchedRate = 0.05, matchedAmount = 50.0, recipient = borrower
+    exerciseCmd bid DrawForMatch with matchedRate = 0.0, matchedAmount = 100.0, borrower = operator
