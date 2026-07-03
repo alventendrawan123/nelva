@@ -161,7 +161,7 @@ export function TourOverlay() {
           />
         </>
       ) : (
-        <div className="pointer-events-auto absolute inset-0 bg-black/74" />
+        <div className="absolute inset-0 bg-black/74" />
       )}
 
       <AnimatePresence mode="wait">

@@ -64,14 +64,6 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
     TOUR_STEPS[index]?.onEnter?.({ setActiveHomeTab });
   }, [isActive, index, setActiveHomeTab]);
 
-  useEffect(() => {
-    if (window.localStorage.getItem(STORAGE_KEY) === "1") {
-      return;
-    }
-    const timer = setTimeout(start, 800);
-    return () => clearTimeout(timer);
-  }, [start]);
-
   const value = useMemo<TourContextValue>(
     () => ({
       isActive,

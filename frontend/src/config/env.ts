@@ -1,4 +1,6 @@
-const DEFAULT_API_BASE_URL = "http://localhost:8090/api";
+// Same-origin: the app calls /api, and next.config.ts rewrites it to the
+// backend (API_PROXY_TARGET, server-only). The backend URL is never public.
+const DEFAULT_API_BASE_URL = "/api";
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
