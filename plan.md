@@ -1,10 +1,17 @@
 # Plan integrasi Frontend (Phase 4) — untuk Bima
 
-**Owner:** Bima · **Konsumen:** end-users (lender + borrower + auditor + operator/demo) · **Status backend:** security review + SC audit selesai, semua CRITICAL/HIGH ditutup, 44 endpoint real di Canton, 14/14 Daml test + 62 assertion live pass. **DAR package id:** `198e9be8…` (FE baca otomatis dari `/api/config`, tak perlu hardcode).
+**Owner:** Bima · **Konsumen:** end-users (lender + borrower + auditor + operator/demo) · **Status backend:** security review + SC audit selesai, semua CRITICAL/HIGH ditutup, 44 endpoint real di Canton, 14/14 Daml test + 62 assertion live pass, **+ LIVE di DevNet 5N** (BE publik di Railway, full lifecycle terbukti di ledger nyata). **DAR package id:** `198e9be837647ec88bec2e2b7d636977bb2ed1e4e0b7e51d481073d626e98585` (64-hex; FE baca otomatis dari `/api/config`, tak perlu hardcode).
 
 Dokumen ini **action plan step-by-step**, bukan reference. FE Nelva **sudah ada** (Next.js App Router + TanStack Query + zod, api layer di `src/lib/api/`) — jadi kerjaan utama = **sinkronisasi ke perubahan kontrak API dari hardening keamanan** lalu verifikasi tiap flow live. Bukan bikin dari nol.
 
 > ⚠️ Backend baru saja di-hardening. Beberapa response berubah bentuk. Kalau langsung `pnpm dev` tanpa Phase 4.1, halaman **Lens** dan **profil lender** akan error (zod parse gagal / data kosong). **Kerjakan 4.1 dulu.**
+
+> 🟢 **UPDATE (DevNet LIVE) — baca ini dulu.**
+> - **BE publik jalan di DevNet 5N:** `https://nelva-production.up.railway.app`. Full lifecycle **bid → match → accept → repay** sudah terbukti di ledger DevNet nyata (bukan sandbox).
+> - **Bima ga perlu jalanin sandbox/WSL lokal.** Cukup set `NEXT_PUBLIC_API_BASE_URL` ke URL Railway itu → semua flow langsung lawan DevNet. (Sandbox lokal tetap boleh, tapi opsional.)
+> - **Party di DevNet di-prefix `nelva-*` (server-side).** FE **tetap** kirim `Bearer` nama bare (`LenderA`, `Borrower`, `Operator`, `Auditor`) — prefix diurus BE, transparan buat FE. **Tak ada perubahan kode FE gara-gara ini.**
+> - Package id di `/api/config` = `198e9be837647ec88bec2e2b7d636977bb2ed1e4e0b7e51d481073d626e98585` (64-hex). FE baca otomatis.
+> - **Catatan validator shared:** DevNet 5N dipakai banyak tim + state persist. Borrower demo mungkin sudah punya credit tier tinggi (mis. Platinum) dari tes sebelumnya — contoh "Bronze→Silver" di plan ini ilustratif; angka aktual bisa beda. Bukan bug.
 
 ---
 
@@ -44,21 +51,19 @@ Lakukan sekali di awal sebelum nyentuh code.
   pnpm dev
   ```
 
-- [ ] **Set `NEXT_PUBLIC_API_BASE_URL`** di `frontend/.env.local` (gitignored):
-  ```
-  # lokal (sandbox jalan di WSL):
-  NEXT_PUBLIC_API_BASE_URL=http://localhost:8090/api
-  # atau prod (Railway):
-  # NEXT_PUBLIC_API_BASE_URL=https://nelva-production.up.railway.app/api
-  ```
-  Default (kalau tak di-set) = `http://localhost:8090/api` (lihat `src/config/env.ts`).
+- [ ] **Target backend — udah otomatis DevNet, ga perlu set apa-apa.** FE pakai **same-origin proxy**: FE manggil `/api`, lalu `frontend/next.config.ts` nge-rewrite ke `API_PROXY_TARGET`. **Default-nya sekarang `https://nelva-production.up.railway.app` (DevNet)** — jadi `pnpm dev` langsung lawan DevNet.
+  - Override (opsional) di `frontend/.env.local` (gitignored), mis. ke sandbox lokal:
+    ```
+    API_PROXY_TARGET=http://localhost:8090
+    ```
+  - ⚠️ `API_PROXY_TARGET` = **server-only** (URL backend ga ke-expose ke client). **JANGAN** set `NEXT_PUBLIC_API_BASE_URL` ke URL penuh — itu bikin FE nembak BE langsung (bypass proxy → risiko CORS). Biarin `API_BASE_URL` default `/api` (lihat `src/config/env.ts`).
 
-- [ ] **Verify backend hidup**
+- [ ] **Verify backend hidup** (pakai URL yang kamu set — contoh DevNet Railway):
   ```bash
-  curl http://localhost:8090/api/health      # -> {"ok":true,"mode":"canton"}
-  curl http://localhost:8090/api/config       # -> {"packageId":"198e9be8...","parties":{...}}
+  curl https://nelva-production.up.railway.app/api/health   # -> {"ok":true,"mode":"canton"}
+  curl https://nelva-production.up.railway.app/api/config    # -> {"packageId":"198e9be83...","parties":{"operator":"nelva-Operator::1220a14ca...",...}}
   ```
-  Kalau `health` gagal / mode bukan `canton` → kabari Alven (sandbox belum jalan).
+  `config` di DevNet balikin party ber-prefix `nelva-*::1220a14ca…` = bukti nyambung ke DevNet 5N. Kalau `health` gagal / mode bukan `canton` → kabari Alven.
 
 - [ ] **Wallet (opsional untuk demo utama):** persona path (Bearer=nama party) sudah cukup untuk seluruh demo. Real Canton wallet (`@canton-network/dapp-sdk`) butuh `NEXT_PUBLIC_CANTON_GATEWAY_URL` — kalau kosong, hanya embedded persona yang muncul di connect picker. **Demo default pakai persona; wallet path itu P3.**
 
