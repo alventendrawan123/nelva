@@ -124,6 +124,21 @@ export class CantonLedger implements Ledger {
     }
   }
 
+  // The participant's namespace fingerprint (the part after "::" in every party it hosts).
+  // Derived once from the token user's primaryParty. Lets us resolve a party by CONSTRUCTING
+  // its full id + a direct GET, instead of scanning /v2/parties — which on a shared validator
+  // is paginated over tens of thousands of parties (our hint is never on page 1).
+  private _ns: string | null = null;
+  private async participantNamespace(): Promise<string | null> {
+    if (this._ns) return this._ns;
+    try {
+      const u = await get(`/v2/users/${encodeURIComponent(ledgerUserId())}`);
+      const pp: string | undefined = u?.user?.primaryParty;
+      if (pp && pp.includes("::")) { this._ns = pp.split("::")[1]; return this._ns; }
+    } catch { /* no user/primaryParty (e.g. sandbox) — fall back to list scan */ }
+    return null;
+  }
+
   // Read-only party resolution — NEVER allocates. Used by GET/read paths so an
   // unauthenticated read can't be turned into an unbounded party-allocation primitive.
   private async lookupParty(name: string): Promise<string | null> {
@@ -131,6 +146,18 @@ export class CantonLedger implements Ledger {
     if (name.includes("::")) return name;
     const c = this.parties.get(name);
     if (c) return c;
+    // Preferred path: construct <hint>::<namespace> and resolve it directly (works even when
+    // the party is deep in a paginated /v2/parties list on a busy shared validator).
+    const ns = await this.participantNamespace();
+    if (ns) {
+      const pid = `${hintOf(name)}::${ns}`;
+      try {
+        const d = await get(`/v2/parties/${encodeURIComponent(pid)}`);
+        const hit = (d.partyDetails ?? []).some((p: any) => (typeof p === "string" ? p : p.party) === pid);
+        if (hit) { this.parties.set(name, pid); return pid; }
+      } catch { /* not found by id — fall through to legacy scan */ }
+    }
+    // Legacy fallback (dpm sandbox / small ledger): scan the first page.
     const d = await get("/v2/parties");
     const list = d.partyDetails ?? d.parties ?? [];
     for (const pd of list) {
@@ -141,7 +168,7 @@ export class CantonLedger implements Ledger {
   }
   // Invalidate the name->party-id cache (e.g. after a sandbox/participant restart makes
   // cached ids stale). Called on ledger auth errors so the next call re-resolves.
-  private resetPartyCache() { this.parties.clear(); this._sync = null; }
+  private resetPartyCache() { this.parties.clear(); this._sync = null; this._ns = null; }
 
   private async submit(actAs: string[], command: any, readAs?: string[]) {
     await authHeader(); // populate _userId so the command's userId matches the token's user
