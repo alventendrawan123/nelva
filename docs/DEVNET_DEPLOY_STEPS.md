@@ -1,140 +1,110 @@
-# Nelva → DevNet: step konkret (verified dari docs Splice + tes live)
+# Nelva → DevNet: cara yang TERBUKTI jalan (5N shared validator via Seaport)
 
-**Status:** SC Nelva (DAR `198e9be8…`) sekarang di `dpm sandbox` (ephemeral, tak konek jaringan). Untuk ke **DevNet Global Synchronizer** butuh **validator node sendiri** yang di-onboard ke jaringan.
+**Status: SELESAI & terverifikasi live (2026-07-05).** SC Nelva jalan penuh di DevNet.
+Full lifecycle **bid → match → accept → repay** sukses di ledger 5N — REPAID, tier Bronze→Silver.
 
-**Verdict jujur (terbukti 2x):** satu-satunya blocker = **egress-IP allowlist**. Docs Splice bilang harfiah: *"Provide your sponsoring SV with the egress IP… Wait for super validators to adopt the new IP allowlist. This usually takes between 2-7 days."* Dan tes live kita: GSF DevNet SV balikin **403 di AWS load balancer** untuk IP kita → belum allowlisted. Tak ada bypass; ELB-nya keras.
+**Ledger:** `https://ledger-api.validator.devnet.sandbox.fivenorth.io` (5N hosted shared validator, DevNet global synchronizer).
+**Package id (vetted, live):** `198e9be837647ec88bec2e2b7d636977bb2ed1e4e0b7e51d481073d626e98585` (64 hex — WAJIB 64, bukan 65).
 
-**Yang BUKAN masalah:** hardware (validator butuh ~6GB app + 1GB DB; laptop 16GB cukup — WSL tinggal dinaikin ke 12GB), tooling (Docker+Compose+jq+curl ada), onboarding secret (self-service, 1 jam). **Tak ada hosted/shared validator publik** — harus jalanin node sendiri.
-
-**Egress IP kita:** `180.242.97.244` (verify ulang tepat sebelum deploy — kalau NAT/IP berubah, allowlist tak cocok).
-
----
-
-## Ringkas alur
-
-```
-[GATE] sponsor SV allowlist IP kita (2-7 hari)  ← blocker, aksi organizer/SV
-   │
-   ▼
-self-gen secret (1 jam) → ./start.sh validator → upload DAR → alokasi party → BE point ke validator
-   (semua ini <15 menit sekali IP kebuka)
-```
+> **Kenapa cara lama (self-host validator + allowlist IP 2-7 hari) tidak dipakai:** panitia
+> (Jatin, Canton Foundation) kasih **Seaport + 5N hosted validator** — self-service, tak perlu
+> onboard node sendiri, tak perlu allowlist. Itu jalur yang benar & jauh lebih cepat.
 
 ---
 
-## FASE A — Bisa dikerjakan SEKARANG (tanpa allowlist)
+## Alur singkat (yang benar-benar dilakukan)
 
-Ini prep; tak menyentuh DevNet, jadi tak kena 403.
-
-**A1. Verify egress IP** (harus `180.242.97.244`):
-```bash
-curl -sSL http://checkip.amazonaws.com
 ```
-
-**A2. Naikin RAM WSL** (validator tak muat di cap default 7.5GB). ⚠️ `wsl --shutdown` akan **matikan sandbox + BE yang lagi jalan** — lakukan saat tak demo:
-```bash
-printf '[wsl2]\nmemory=12GB\n' > /mnt/c/Users/ASUS/.wslconfig
-wsl --shutdown        # lalu start ulang Docker Desktop
-```
-
-**A3. Cek tooling** (butuh Docker Compose ≥ 2.26.0):
-```bash
-docker compose version && curl --version | head -1 && jq --version
-```
-
-**A4. Download + extract bundle validator Splice v0.6.11** (jangan `./start.sh` dulu):
-```bash
-curl -fSL -o 0.6.11_splice-node.tar.gz \
-  https://github.com/digital-asset/decentralized-canton-sync/releases/download/v0.6.11/0.6.11_splice-node.tar.gz
-tar xzvf 0.6.11_splice-node.tar.gz
-cd splice-node/docker-compose/validator
-export IMAGE_TAG=0.6.11
-```
-
-**A5. Fix code-gap BE** (nginx validator route by `Host: json-ledger-api.localhost`): `be/src/ledger.canton.ts` `fetch()` (post/get) belum kirim header `Host`. Tambah header itu kalau BE nembak validator docker (atau jalanin BE di dalam network compose). Aku bisa patch ini kapan pun.
-
----
-
-## FASE B — GATE (aksi organizer / SV operator) — BLOCKER
-
-**B1. Cari sponsoring SV + minta allowlist.** Ini gerbang yang bikin 2-7 hari.
-- **Tanya panitia hackathon dulu** (tercepat): *"Tolong add egress IP `180.242.97.244` ke DevNet validator allowlist, sponsored by <SV>. Atau ada shared validator/endpoint DevNet buat peserta?"*
-- Kalau tak ada: kontak GSF/SV via `sync.global` + Slack `#gsf-global-synchronizer-appdev`.
-- **UNKNOWN:** docs tak sebut SV sponsor DevNet mana yang nerima app-dev + channel kontaknya. **Ini yang kamu harus resolve.**
-
-**B2. SV adopsi IP + propagate ke semua SV** — 2-7 hari. **Tak ada yang bisa jalan sampai ini kelar.**
-
----
-
-## FASE C — Setelah IP allowlisted (~15 menit, aku bisa scriptkan)
-
-**C0. Ambil MIGRATION_ID + SPONSOR_SV_URL asli** (live):
-- MIGRATION_ID: dari https://sync.global/sv-network/ (nilai frozen).
-- SPONSOR_SV_URL: bentuk `https://sv.sv-1.<cluster>.global.canton.network.sync.global` (pakai `sv.`, cluster `dev`, **BUKAN** `scan.`). Konfirmasi host GSF DevNet persis ke sponsor.
-
-**C1. Cek IP sudah lolos** (tak 403 lagi):
-```bash
-curl -sS https://scan.sv-1.<dev-cluster>.global.canton.network.sync.global/api/scan/v0/dso  # dari IP 180.242.97.244
-```
-
-**C2. Self-gen onboarding secret** (valid 1 JAM — bikin persis sebelum start):
-```bash
-curl -X POST "$SPONSOR_SV_URL/api/sv/v0/devnet/onboard/validator/prepare"
-# inspect body -> ambil field secret-nya (schema respons belum terdokumentasi; lihat live)
-```
-
-**C3. Start validator** (auth on). `party_hint` **PERMANEN**, format `<org>-<function>-<enum>`:
-```bash
-export IMAGE_TAG=0.6.11
-./start.sh -s "$SPONSOR_SV_URL" -o "$ONBOARDING_SECRET" -p "nelva-validator-1" -m "$MIGRATION_ID" -w -a
-# restart nanti: -o wajib tetap ada, pakai -o ""
-```
-Port (semua `.localhost:80`): Wallet UI `wallet.localhost` · CNS UI `ans.localhost` · **JSON Ledger API `json-ledger-api.localhost`** · gRPC `grpc-ledger-api.localhost`.
-
-**C4. Upload DAR Nelva** (octet-stream, bukan JSON/multipart; sukses = body `{}`):
-```bash
-curl -X POST http://json-ledger-api.localhost/v2/packages \
-  -H "Host: json-ledger-api.localhost" \
-  -H "Content-Type: application/octet-stream" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  --data-binary @d:/nelva/be/nelva-sc-0.1.0.dar
-# ADMIN_TOKEN dari Keycloak/OIDC validator (client_credentials); realm/audience baca dari config validator
-```
-
-**C5. Alokasi party** (verify path via `GET /v2/openapi.json` dulu — docs beda `/v2/parties` vs `/v2/parties/allocate`):
-```bash
-curl -X POST http://json-ledger-api.localhost/v2/parties \
-  -H "Host: json-ledger-api.localhost" -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" -d '{"partyIdHint":"nelva-operator"}'
-# ulangi: Operator, Auditor, Custodian, Oracle, LenderA/B, Borrower
-# party id balik = <hint>::<fingerprint> — catat buat konfigurasi BE
-```
-
-**C6. Point BE ke validator** (BE **sudah support** OAuth — tinggal env):
-```bash
-JSON_LEDGER_API=http://json-ledger-api.localhost
-NELVA_PACKAGE_ID=198e9be8837647ec88bec2e2b7d636977bb2ed1e4e0b7e51d481073d626e98585
-AUTH_TOKEN_URL=<keycloak-token-endpoint>
-AUTH_CLIENT_ID=<...>  AUTH_CLIENT_SECRET=<...>  AUTH_SCOPE=<...>  AUTH_AUDIENCE=<...>
-# + pastikan fetch() kirim Host: json-ledger-api.localhost (fix A5)
+1. Seaport (devnet.seaport.to) → login Loop wallet → Validator Settings
+2. Upload DAR (be/nelva-sc-0.1.0.dar) → deploy → "success: true"
+   → package id ke-vet otomatis di global synchronizer (muncul di /v2/packages)
+3. Ambil M2M credential (client_credentials) dari 5N → simpan secret DI LUAR repo
+4. Wire BE env → LEDGER_MODE=canton + JSON_LEDGER_API 5N + AUTH_* + NELVA_PARTY_PREFIX=nelva-
+5. Jalankan BE → seed jalan → flow settle sendiri
 ```
 
 ---
 
-## UNKNOWN yang harus dikonfirmasi live (jangan hardcode)
-- Host GSF DevNet SPONSOR_SV_URL persis (docs cuma kasih placeholder `unknown_cluster`).
-- Nilai MIGRATION_ID (baca live sync.global/sv-network).
-- Field JSON buat ekstrak secret dari respons `/prepare`.
-- `aud`/`scope` yang JSON Ledger API validator harapkan (baca Keycloak config validator).
-- Path alokasi party (`/v2/parties` vs `/v2/parties/allocate`) — cek openapi.json validator.
-- SV sponsor DevNet mana + channel kontaknya (resolve via organizer).
+## 1. Deploy DAR (Seaport)
+
+- Buka **https://devnet.seaport.to**, login pakai **Loop wallet** (devnet.cantonloop.com).
+- **Validator Settings → Upload DAR** → pilih `be/nelva-sc-0.1.0.dar` → deploy.
+- Sukses = `{"success": true}`. Package id ke-vet di jaringan (butuh beberapa saat propagasi).
+
+**Cek DAR ke-vet** (pakai M2M token, lihat §2):
+```
+GET https://ledger-api.validator.devnet.sandbox.fivenorth.io/v2/packages
+# 198e9be837647ec88bec2e2b7d636977bb2ed1e4e0b7e51d481073d626e98585 harus ada di packageIds
+```
+
+> ⚠️ **Gotcha package id:** id Daml = **tepat 64 hex**. Draft awal sempat salah tulis 65 char
+> (ada `8` dobel: `198e9be88…` ✗). Yang benar `198e9be83…` ✓. Verify dari DAR:
+> `unzip -l nelva-sc-0.1.0.dar` → nama folder/main .dalf = package id asli.
+
+## 2. M2M credential (OAuth2 client_credentials)
+
+5N kasih client_credentials M2M (Authentik). **Simpan secret di luar repo — JANGAN commit.**
+
+Token endpoint (WAJIB trailing slash):
+```
+POST https://auth.sandbox.fivenorth.io/application/o/token/
+  grant_type=client_credentials
+  client_id=validator-devnet-m2m
+  client_secret=<secret-kamu>
+  audience=validator-devnet-m2m
+  scope=daml_ledger_api
+```
+Token JWT: `sub` = userId (mis. `6`) — dipakai jadi `userId` waktu submit command.
+
+## 3. Model auth di shared validator (PENTING)
+
+Ini yang bikin submit pertama 403 sampai di-handle:
+
+- **Namespace di-share.** Semua party lahir di namespace participant `1220a14ca128…`.
+  Party hint bare "Operator" bisa **tabrakan** dengan tim lain → pakai prefix `nelva-`.
+- **Alokasi party ≠ hak actAs.** Setelah `POST /v2/parties`, user token BELUM punya
+  `CanActAs` atas party itu → submit `actAs` → **403 PERMISSION_DENIED**. Harus grant:
+  ```
+  POST /v2/users/{sub}/rights
+    { "userId":"{sub}", "rights":[{"kind":{"CanActAs":{"value":{"party":"<pid>"}}}}] }
+  ```
+  `CanActAs` sudah mencakup read. BE lakukan ini otomatis di `ensureParty` (env-gated).
+- **userId waktu submit = `sub` token**, bukan nama app. BE ambil dari JWT otomatis.
+
+Ketiga hal ini sudah di-handle di [be/src/ledger.canton.ts](../be/src/ledger.canton.ts)
+(`hintOf` prefix, `grantActAs`, `ledgerUserId`). Aktif hanya kalau `AUTH_TOKEN_URL` diset.
+
+## 4. Wire BE ke 5N
+
+Env (lihat [be/.env.example](../be/.env.example) blok "5N DevNet"):
+```
+LEDGER_MODE=canton
+JSON_LEDGER_API=https://ledger-api.validator.devnet.sandbox.fivenorth.io
+NELVA_PACKAGE_ID=198e9be837647ec88bec2e2b7d636977bb2ed1e4e0b7e51d481073d626e98585
+NELVA_PARTY_PREFIX=nelva-
+AUTH_TOKEN_URL=https://auth.sandbox.fivenorth.io/application/o/token/
+AUTH_CLIENT_ID=validator-devnet-m2m
+AUTH_CLIENT_SECRET=<secret — dari file di luar repo>
+AUTH_SCOPE=daml_ledger_api
+AUTH_AUDIENCE=validator-devnet-m2m
+```
+Jalankan: `cd be && npm run start` (seed jalan otomatis, auto-matcher tiap 20s).
+
+## 5. Verifikasi (yang sudah lulus)
+
+```
+GET  /api/config                      → packageId + parties nelva-Operator/Auditor/Custodian::…
+GET  /api/status                      → openBids, proposals, activeLoans
+GET  /api/proposals  (Bearer Borrower)→ proposal hasil match (ticks per-lender)
+POST /api/proposals/{id}/accept       → Loan ACTIVE
+POST /api/loans/{id}/repay            → REPAID, newTier Silver
+```
+Semua di atas sudah **200 OK di ledger 5N nyata** (2026-07-05).
 
 ---
 
-## Rekomendasi
+## Catatan
 
-1. **Hari ini**: tanya panitia — shared validator? atau minta allowlist IP `180.242.97.244`. Ini yang mulai jam 2-7 hari; makin cepat makin baik (finale ~13 Juli).
-2. **Host finale**: pakai **cloud VM** (IP stabil, always-on), jangan laptop rumah (IP bisa ganti → allowlist tak cocok; uptime rapuh buat demo dinilai). VM IP di-allowlist sekali.
-3. **Kalau DevNet tak kelar tepat waktu**: demo tetap kuat di sandbox — nilai jual (sealed-bid privacy + auditor GREEN/RED) tak butuh shared network. DevNet = bonus "real network", bukan syarat.
-
-Sumber: [Validator Onboarding](https://docs.dev.sync.global/validator_operator/validator_onboarding.html) · [Docker Compose Validator](https://docs.dev.sync.global/validator_operator/validator_compose.html) · [Hardware Req](https://docs.dev.sync.global/validator_operator/validator_hardware_requirements.html) · tes live 403 (awselb) 2026-07-04.
+- Secret M2M 5N disimpan di `C:\Users\ASUS\nelva-5n-devnet.env` (DI LUAR repo). Jangan commit.
+- Kalau demo finale butuh IP stabil / always-on, host BE di cloud VM + isi env yang sama.
+- Sandbox `dpm` lokal tetap jadi fallback (unset `AUTH_TOKEN_URL` + `NELVA_PARTY_PREFIX`).

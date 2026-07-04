@@ -13,18 +13,34 @@ const BASE = process.env.JSON_LEDGER_API ?? "http://localhost:7575";
 // package id of the deployed DAR — UPDATE on every SC rebuild (dpm damlc inspect-dar --json)
 const PKG = process.env.NELVA_PACKAGE_ID ?? "198e9be837647ec88bec2e2b7d636977bb2ed1e4e0b7e51d481073d626e98585";
 const USER = process.env.LEDGER_USER_ID ?? "nelva-be";
+// On a SHARED validator (e.g. 5N DevNet sandbox) the participant namespace is shared, so a
+// bare hint like "Operator" collides with another team's "Operator". A prefix scopes our
+// parties. Empty (default) = sandbox behaviour unchanged. Set NELVA_PARTY_PREFIX=nelva- on 5N.
+const PARTY_PREFIX = process.env.NELVA_PARTY_PREFIX ?? "";
+const hintOf = (name: string) => PARTY_PREFIX + name;
 const DEADLINE = "2030-01-01T00:00:00Z"; // default far-future maturity for loans/seeds
 // A SealedBid's withdraw deadline = now + durationDays. Using the hardcoded far-future
 // DEADLINE here made WithdrawBid impossible until 2030, locking lender funds.
 const deadlineFrom = (days: number) => new Date(Date.now() + days * 86400000).toISOString();
 
 const tid = (s: string) => `${PKG}:Nelva.${s}`;
-const nameOf = (pid: string) => (pid ? pid.split("::")[0] : pid);
+// Display/compare name = hint with the party prefix stripped, so "nelva-Borrower::ns" reads
+// back as "Borrower" and matches a bare viewer name from dev-auth.
+const nameOf = (pid: string) => {
+  if (!pid) return pid;
+  const n = pid.split("::")[0];
+  return PARTY_PREFIX && n.startsWith(PARTY_PREFIX) ? n.slice(PARTY_PREFIX.length) : n;
+};
 
 // OAuth2 client_credentials token provider (cached). When AUTH_TOKEN_URL is
 // unset (e.g. dpm sandbox) NO Authorization header is sent — backward compatible.
 // On DevNet / LocalNet / NaaS, set AUTH_* and every Ledger API call is Bearer-authed.
 let _tok: { value: string; exp: number } | null = null;
+// The command-submitting userId. On an auth participant this MUST be the token's user
+// (its `sub`), not our app name — the participant rejects a mismatched userId. Decoded
+// from the JWT when a token is fetched; falls back to LEDGER_USER_ID/nelva-be on sandbox.
+let _userId: string | null = null;
+const ledgerUserId = (): string => _userId ?? USER;
 async function authHeader(): Promise<Record<string, string>> {
   const url = process.env.AUTH_TOKEN_URL;
   if (!url) return {}; // sandbox: auth disabled
@@ -42,6 +58,7 @@ async function authHeader(): Promise<Record<string, string>> {
   if (!r.ok) throw new Error(`auth token fetch -> ${r.status} ${txt.slice(0, 200)}`);
   const j = JSON.parse(txt);
   _tok = { value: j.access_token, exp: now + Number(j.expires_in ?? 300) * 1000 };
+  try { _userId = JSON.parse(Buffer.from(String(j.access_token).split(".")[1], "base64url").toString()).sub ?? _userId; } catch { /* opaque token: keep fallback */ }
   return { Authorization: `Bearer ${_tok.value}` };
 }
 
@@ -74,18 +91,35 @@ export class CantonLedger implements Ledger {
   private seq = 0;
   private nid(p: string) { return `${p}-${Date.now().toString(36)}-${++this.seq}`; }
 
+  // Parties whose CanActAs we've already granted to the token user this process — dedup only
+  // (the grant itself persists on the participant, so a restart with an empty set is harmless).
+  private granted = new Set<string>();
+  // On an auth participant, allocating a party does NOT grant the submitting user rights over
+  // it — a later actAs then 403s. Grant CanActAs (which subsumes read) once per party. No-op on
+  // sandbox (no AUTH_TOKEN_URL → no user-rights model).
+  private async grantActAs(pid: string): Promise<void> {
+    if (!process.env.AUTH_TOKEN_URL || this.granted.has(pid)) return;
+    await authHeader(); // ensure the token (and _userId) is populated
+    const uid = ledgerUserId();
+    try {
+      await post(`/v2/users/${encodeURIComponent(uid)}/rights`, { userId: uid, rights: [{ kind: { CanActAs: { value: { party: pid } } } }] });
+    } catch (e) { /* already granted / racing alloc — the submit will surface a real auth failure */ }
+    this.granted.add(pid);
+  }
+
   private async ensureParty(name: string): Promise<string> {
     if (name.includes("::")) return name; // already a full party-id (e.g. an external wallet party) — use as-is
     const c = this.parties.get(name);
     if (c) return c;
     try {
-      const r = await post("/v2/parties", { partyIdHint: name });
+      const r = await post("/v2/parties", { partyIdHint: hintOf(name) });
       const pid = r.partyDetails.party;
       this.parties.set(name, pid);
+      await this.grantActAs(pid);
       return pid;
     } catch {
       const found = await this.lookupParty(name);
-      if (found) return found;
+      if (found) { await this.grantActAs(found); return found; }
       throw new Error(`cannot allocate or find party ${name}`);
     }
   }
@@ -101,7 +135,7 @@ export class CantonLedger implements Ledger {
     const list = d.partyDetails ?? d.parties ?? [];
     for (const pd of list) {
       const pid = typeof pd === "string" ? pd : pd.party;
-      if (pid && pid.split("::")[0] === name) { this.parties.set(name, pid); return pid; }
+      if (pid && pid.split("::")[0] === hintOf(name)) { this.parties.set(name, pid); return pid; }
     }
     return null;
   }
@@ -110,7 +144,8 @@ export class CantonLedger implements Ledger {
   private resetPartyCache() { this.parties.clear(); this._sync = null; }
 
   private async submit(actAs: string[], command: any, readAs?: string[]) {
-    const body: any = { commands: [command], commandId: this.nid("c"), userId: USER, actAs };
+    await authHeader(); // populate _userId so the command's userId matches the token's user
+    const body: any = { commands: [command], commandId: this.nid("c"), userId: ledgerUserId(), actAs };
     if (readAs) body.readAs = readAs;
     try {
       const r = await post("/v2/commands/submit-and-wait-for-transaction-tree", body);
@@ -521,7 +556,7 @@ export class CantonLedger implements Ledger {
   async walletPrepare(party: string, commands: any[], disclosedContracts: any[] = []) {
     const synchronizerId = await this.synchronizerId();
     const r = await post("/v2/interactive-submission/prepare", {
-      userId: USER, commandId: this.nid("wc"), actAs: [party], synchronizerId,
+      userId: ledgerUserId(), commandId: this.nid("wc"), actAs: [party], synchronizerId,
       commands, packageIdSelectionPreference: [], verboseHashing: true,
       disclosedContracts,
     });
@@ -608,7 +643,7 @@ export class CantonLedger implements Ledger {
   // step 4: FE returns the signature over the prepared hash -> we submit. The key never left the browser.
   async walletExecute(party: string, preparedTransaction: string, hashingSchemeVersion: string, fingerprint: string, sig: string) {
     return post("/v2/interactive-submission/execute", {
-      preparedTransaction, hashingSchemeVersion, userId: USER, submissionId: this.nid("we"),
+      preparedTransaction, hashingSchemeVersion, userId: ledgerUserId(), submissionId: this.nid("we"),
       deduplicationPeriod: { Empty: {} },
       partySignatures: { signatures: [{ party, signatures: [{ format: "SIGNATURE_FORMAT_CONCAT", signature: sig, signedBy: fingerprint, signingAlgorithmSpec: "SIGNING_ALGORITHM_SPEC_ED25519" }] }] },
     });

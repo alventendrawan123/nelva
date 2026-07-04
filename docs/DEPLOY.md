@@ -21,7 +21,7 @@ The BE is the only public surface; it reaches the Canton ledger over `localhost`
 3. **Variables** — these are already baked into the Dockerfile, override only if needed:
    - `LEDGER_MODE=canton`
    - `JSON_LEDGER_API=http://localhost:7575`
-   - `NELVA_PACKAGE_ID=2ca7c73857de562d7a62f1550384a577c24fa1c5db614c4fd4028c7ddb1847fe`
+   - `NELVA_PACKAGE_ID=198e9be837647ec88bec2e2b7d636977bb2ed1e4e0b7e51d481073d626e98585` (64 hex)
    - (`PORT` is injected by Railway — do not set it.)
    - `FE_ORIGIN` — set **after** step 2 of Vercel (the Vercel URL), then redeploy. Locks CORS.
 4. Deploy. First boot takes ~30–60 s (sandbox start + DAR vetting + seed); healthcheck `/api/health` has a 240 s grace.
