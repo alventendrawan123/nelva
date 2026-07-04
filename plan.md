@@ -40,7 +40,7 @@ Lakukan sekali di awal sebelum nyentuh code.
   ```bash
   git pull origin main
   ```
-  Pastikan dapat commit terakhir `fix(sc): per-lender loan privacy …` + `fix(be): lens hero full view for operator/auditor`.
+  Pastikan dapat commit-commit terbaru (BE canton-only + wiring DevNet + FE proxy fix + SC audit).
 
 - [ ] **Baca `AGENTS.md` di `frontend/`** — versi Next.js di repo ini **bukan** yang biasa; ada breaking change. Baca guide di `node_modules/next/dist/docs/` sebelum nulis kode Next.js apa pun.
 
@@ -67,7 +67,7 @@ Lakukan sekali di awal sebelum nyentuh code.
 
 - [ ] **Wallet (opsional untuk demo utama):** persona path (Bearer=nama party) sudah cukup untuk seluruh demo. Real Canton wallet (`@canton-network/dapp-sdk`) butuh `NEXT_PUBLIC_CANTON_GATEWAY_URL` — kalau kosong, hanya embedded persona yang muncul di connect picker. **Demo default pakai persona; wallet path itu P3.**
 
-- [ ] **Baca ringkas 3 dokumen** (30–40 menit): `docs/2_TECH_SPEC.md` (kontrak REST §5/§6), `docs/3_USER_FLOW_WIREFRAME.md` (page flow), dan section [Phase 4.1](#3-phase-41--sync-kontrak-api-wajib-dulu) di dokumen ini (daftar perubahan API). Pahami dulu sebelum nulis kode.
+- [ ] **Baca ringkas** (30–40 menit): section [Phase 4.1](#3-phase-41--sync-kontrak-api-wajib-dulu) di dokumen ini (daftar perubahan API) + minta `2_TECH_SPEC.md` (kontrak REST §5/§6) & `3_USER_FLOW_WIREFRAME.md` (page flow) ke **Alven** — docs internal, **tidak ada di repo publik**. Pahami dulu sebelum nulis kode.
 
 ---
 
@@ -502,7 +502,7 @@ Kalau molor (bug/RPC/ledger issue), kabari Alven **sehari** — bisa adjust scop
 ## 12. Kontak
 
 - **Backend / API / kontrak** → Alven (chat / WhatsApp)
-- **Canton wallet / dApp-SDK deeper** → lihat `docs/RUNBOOK_REAL_WALLET_DEVNET.md` dulu, baru tanya Alven
+- **Canton wallet / dApp-SDK deeper** → minta `RUNBOOK_REAL_WALLET_DEVNET.md` ke Alven (docs internal, tidak di repo), baru tanya
 - **Block/stuck >2 jam** → DM Alven, jangan diem 1 hari ngacak
 
 Ringkas prioritas: **4.1 (sync) → 4.2/4.3 (core flow) → 4.4 (lens+audit hero) → sisanya**. Yang bikin menang demo = **Lens (privasi) + Audit GREEN/RED**. Fokus ke sana.
