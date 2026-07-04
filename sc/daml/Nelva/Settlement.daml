@@ -9,7 +9,7 @@ module Nelva.Settlement where
 
 import DA.Time (addRelTime, days, hours)
 import DA.Optional (fromSome)
-import DA.List (unique, find)
+import DA.List (unique)
 import DA.Foldable (mapA_)
 import Nelva.Asset
 import Nelva.Lending
