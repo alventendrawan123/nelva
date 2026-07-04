@@ -29,3 +29,6 @@ Thumbs.db
 *.log.*
 sc/log/
 *.tmp
+
+# ── Internal docs (kept out of the public repo) ──────────
+docs/
