@@ -1,8 +1,6 @@
-// Ledger interface + factory. server.ts talks ONLY to this, so swapping the
-// in-memory mock for the real Canton JSON Ledger API needs no route changes.
-// Pick the impl with env LEDGER_MODE=mock (default) | canton.
+// Ledger interface + factory. server.ts talks ONLY to this interface, so the impl
+// (the real Canton JSON Ledger API) can change without touching any route.
 import type { Bid, BorrowIntent, MatchProposal, Loan, AuditBadge, HoldingView, Tier, Role } from "./types.js";
-import { MockLedger } from "./ledger.mock.js";
 import { CantonLedger } from "./ledger.canton.js";
 
 export interface Ledger {
@@ -60,5 +58,6 @@ export interface Ledger {
   market(): Promise<{ instruments: { instrument: string; openBids: number; openBorrows: number; activeLoans: number; totalOpenLendVolume: number | null; totalOpenBorrowVolume: number | null; avgLoanSize: number | null }[] }>;
 }
 
-export const LEDGER_MODE = process.env.LEDGER_MODE === "canton" ? "canton" : "mock";
-export const ledger: Ledger = LEDGER_MODE === "canton" ? new CantonLedger() : new MockLedger();
+// Canton-only: the BE always talks to the real JSON Ledger API (dpm sandbox or DevNet).
+export const LEDGER_MODE = "canton";
+export const ledger: Ledger = new CantonLedger();

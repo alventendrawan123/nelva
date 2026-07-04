@@ -1,5 +1,5 @@
 // Real Canton adapter — talks to the JSON Ledger API v2 (e.g. dpm sandbox on 7575).
-// Uses the recipe verified end-to-end on the sandbox (see be/skill.md + memory):
+// Uses the JSON Ledger API recipe verified end-to-end on the dpm sandbox + 5N DevNet:
 // POST /v2/parties (allocate, fallback lookup), submit-and-wait-for-transaction-tree
 // (extract created cids), POST /v2/state/active-contracts (filtersByParty = per-party
 // privacy). Privacy in the Lens is REAL here — each party-scoped read returns only

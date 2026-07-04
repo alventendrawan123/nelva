@@ -1,14 +1,17 @@
 # Nelva BE (gateway)
 
-Thin backend for Nelva. **Mock-ledger mode** (default) runs fully in-memory — no
-Canton needed — so the FE can build against the real REST contract immediately.
-Later, swap `src/store.ts` for a JSON Ledger API adapter (`be/skill.md`) to go live.
+Thin REST gateway for Nelva. Talks to the real Canton JSON Ledger API
+(`src/ledger.canton.ts`) — the smart contracts (Daml) hold all correctness, matching,
+authorization, and money logic; this backend just builds ledger commands and projects
+party-scoped reads. Live on 5N DevNet (`https://nelva-production.up.railway.app`).
 
 ## Run
+Needs a Canton ledger (dpm sandbox on :7575, or 5N DevNet). Copy `.env.example` → `.env`
+and fill it (see the "5N DevNet" block for the live setup).
 ```bash
 cd be
 npm install
-npm run dev        # http://localhost:8090  (auto-seeded with demo data)
+npm run dev        # http://localhost:8090  (auto-seeds demo data on boot)
 ```
 Health: `GET /api/status` · `GET /api/health`
 
@@ -28,14 +31,14 @@ See **docs/2_TECH_SPEC §5** (API contract) and **§6** (Lens). Summary:
 ## Demo flow (curl)
 ```bash
 B=http://localhost:8090/api
-curl -XPOST $B/admin/run-match                                   # -> proposal P-borrow-3 (honest)
-curl -H "Authorization: Bearer Auditor" -XPOST $B/audit/verify/<id>   # -> GREEN
-curl -XPOST $B/admin/cheat-match                                 # dishonest proposal
-curl -H "Authorization: Bearer Auditor" -XPOST $B/audit/verify/<cheatId>  # -> RED  (money shot)
-curl "$B/lens?proposalId=<id>"                                   # 5 perspectives for the diff
+curl -H "Authorization: Bearer Operator" -XPOST $B/admin/run-match          # -> proposal (honest, on-ledger)
+curl -H "Authorization: Bearer Auditor"  -XPOST $B/audit/verify/<id>        # -> GREEN
+curl -H "Authorization: Bearer Operator" -XPOST $B/admin/cheat-match        # dishonest proposal
+curl -H "Authorization: Bearer Auditor"  -XPOST $B/audit/verify/<cheatId>   # -> RED  (money shot)
+curl -H "Authorization: Bearer Operator" "$B/lens?proposalId=<id>"          # 5 perspectives for the diff
 ```
 
 ## Notes
-- Mock uses JS numbers for amounts (contract recommends string decimals in prod).
-- Match/verify logic in `src/match.ts` mirrors `daml/Nelva/Match.daml` 1:1.
-- Privacy comes from the store projection (party-scoped reads), not FE filtering.
+- Amounts/rates go to the ledger as string decimals (Daml Numeric), never floats.
+- `src/match.ts` = cheat-match helper only (the demo RED path); the honest match runs on-ledger (`Nelva.Settlement:RunMatch`).
+- Privacy is native Canton sub-transaction projection (party-scoped reads), not FE filtering.

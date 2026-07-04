@@ -1,7 +1,7 @@
 // Nelva BE gateway. Routes talk to the Ledger interface (mock or real Canton —
 // LEDGER_MODE env). REST contract = docs/2_TECH_SPEC §5/§6. FE is unaffected by
 // which ledger backs it.
-import express, { Request, Response, NextFunction } from "express";
+import express, { Request, Response } from "express";
 import cors from "cors";
 import { roleOf } from "./types.js";
 import { ledger, LEDGER_MODE } from "./ledger.js";
@@ -53,7 +53,7 @@ function classifyError(e: any): { status: number; body: any } {
   return { status: 400, body: { error: msg } };
 }
 // wrap an async handler -> classified, sanitized error
-const h = (fn: (req: Request, res: Response) => Promise<any>) => (req: Request, res: Response, _n: NextFunction) => {
+const h = (fn: (req: Request, res: Response) => Promise<any>) => (req: Request, res: Response) => {
   fn(req, res).catch((e: any) => { const { status, body } = classifyError(e); res.status(status).json(body); });
 };
 function requireParty(req: Request, res: Response): string | null {
