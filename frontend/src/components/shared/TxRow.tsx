@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { FiExternalLink } from "react-icons/fi";
 import { Badge } from "@/components/ui/Badge";
 import { TokenIcon } from "@/components/ui/TokenIcon";
+import { shortId } from "@/lib/format";
 
 type BadgeTone = "success" | "danger" | "warning" | "accent" | "neutral";
 
@@ -32,8 +33,11 @@ export function TxRow({
         <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted">
           <span>{subtitle}</span>
           {idLabel ? (
-            <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-muted">
-              {idLabel}
+            <span
+              title={idLabel}
+              className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-muted"
+            >
+              {shortId(idLabel)}
             </span>
           ) : null}
         </div>

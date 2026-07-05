@@ -26,7 +26,7 @@ import {
   useVerify,
 } from "@/lib/api/hooks";
 import type { AuditBadge, LensView } from "@/lib/api/schemas";
-import { formatAmount, formatRate } from "@/lib/format";
+import { formatAmount, formatRate, shortId } from "@/lib/format";
 import { PanelHeading } from "./PanelHeading";
 
 type Tone = "shared" | "only" | "hidden";
@@ -191,7 +191,7 @@ export function LensPanel() {
           >
             {proposals.data.map((proposal) => (
               <option key={proposal.proposalId} value={proposal.proposalId}>
-                {proposal.proposalId} ({proposal.status})
+                {shortId(proposal.proposalId)} ({proposal.status})
               </option>
             ))}
           </select>
@@ -208,7 +208,10 @@ export function LensPanel() {
         {lens.data ? (
           <div className="space-y-8">
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <KpiTile label="Proposal" value={activeId || "-"} />
+              <KpiTile
+                label="Proposal"
+                value={activeId ? shortId(activeId) : "-"}
+              />
               <KpiTile
                 label="Principal"
                 value={proposal ? formatAmount(proposal.principal) : "-"}

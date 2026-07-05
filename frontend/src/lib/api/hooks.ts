@@ -25,7 +25,11 @@ const keys = {
 };
 
 export function useStatus() {
-  return useQuery({ queryKey: keys.status, queryFn: api.status });
+  return useQuery({
+    queryKey: keys.status,
+    queryFn: api.status,
+    refetchInterval: 15000,
+  });
 }
 
 export function useMe() {
