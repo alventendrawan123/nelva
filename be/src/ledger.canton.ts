@@ -667,19 +667,19 @@ export class CantonLedger implements Ledger {
       .filter(Boolean);
     return { loanId, owed, creditScoreCid, disclosed };
   }
-  // Fund a fresh wallet party (e.g. a Canton-gateway party with no faucet of its
-  // own) with 200 nUSD, once — idempotent so it can't be drained by re-calling.
+  // Top-up faucet: mint 200 nUSD to the wallet party on every call, so a user who has
+  // locked/spent their funds (collateral, sealed bids) can refill and keep exploring.
+  // nUSD is test money on DevNet — draining is harmless, so no once-only cap.
   private _faucetLocks = new Map<string, Promise<{ party: string; funded: boolean }>>();
   async walletFaucet(party: string) {
     if (!party) throw new Error("party required");
     const pid = await this.ensureParty(party);
-    // serialize per party so concurrent calls can't both pass the has-holding check and double-fund
+    // serialize per party so a rapid double-click mints once, not twice
     const inflight = this._faucetLocks.get(pid);
     if (inflight) return inflight;
     const job = (async () => {
-      const has = (await this.acsAs(pid, "Asset:Holding")).some((x) => x.arg.owner === pid);
-      if (!has) await this.fundPid(pid, 200);
-      return { party: pid, funded: !has };
+      await this.fundPid(pid, 200);
+      return { party: pid, funded: true };
     })();
     this._faucetLocks.set(pid, job);
     try { return await job; } finally { this._faucetLocks.delete(pid); }
