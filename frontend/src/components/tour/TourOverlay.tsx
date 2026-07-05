@@ -22,8 +22,10 @@ export function TourOverlay() {
   const clickToAdvance = step?.clickToAdvance ?? false;
 
   useEffect(() => {
+    // clear any previous highlight so a missing target never leaves the
+    // spotlight stuck on the last step's element
+    setRect(null);
     if (!isActive || !target) {
-      setRect(null);
       return;
     }
 
@@ -45,6 +47,8 @@ export function TourOverlay() {
           width: box.width + PADDING * 2,
           height: box.height + PADDING * 2,
         });
+      } else {
+        setRect(null);
       }
       if (performance.now() - start < 4000) {
         frame = requestAnimationFrame(measure);
@@ -210,7 +214,7 @@ export function TourOverlay() {
               >
                 {index > 0 ? "Back" : "Skip"}
               </Button>
-              {clickToAdvance ? (
+              {clickToAdvance && rect ? (
                 <motion.span
                   className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary"
                   animate={

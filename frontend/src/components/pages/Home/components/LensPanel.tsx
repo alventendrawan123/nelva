@@ -20,7 +20,7 @@ import { Card } from "@/components/ui/Card";
 import {
   useCheatMatch,
   useLens,
-  useProposals,
+  useLensProposals,
   useRunMatch,
   useSeed,
   useVerify,
@@ -118,7 +118,7 @@ function buildColumns(lens: LensView): LensColumn[] {
 
 export function LensPanel() {
   const [selected, setSelected] = useState("");
-  const proposals = useProposals();
+  const proposals = useLensProposals();
   const runMatch = useRunMatch();
   const cheatMatch = useCheatMatch();
   const seed = useSeed();

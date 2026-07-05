@@ -109,6 +109,15 @@ export function useLens(proposalId: string) {
   });
 }
 
+// The Lens is a public teaching view: read proposals as the operator so it
+// always has one to inspect, regardless of the connected wallet's scope.
+export function useLensProposals() {
+  return useQuery({
+    queryKey: ["proposals", "Operator"],
+    queryFn: () => api.proposals("Operator"),
+  });
+}
+
 export function useLenderStatus() {
   const { party } = useParty();
   return useQuery({
