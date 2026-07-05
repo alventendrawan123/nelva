@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { API_BASE_URL } from "@/config/env";
 import { useWallet } from "@/context/WalletContext";
+import { useFaucet, useHoldings } from "@/lib/api/hooks";
 
 function shortId(id: string): string {
   const [name, fingerprint] = id.split("::");
@@ -19,29 +18,13 @@ export function ConnectWallet() {
     connectCanton,
     disconnect,
   } = useWallet();
-  const [available, setAvailable] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!partyId) {
-      setAvailable(null);
-      return;
-    }
-    let live = true;
-    fetch(`${API_BASE_URL}/holdings`, {
-      headers: { Authorization: `Bearer ${partyId}` },
-    })
-      .then((r) => r.json())
-      .then((rows: { amount: number; locked: boolean }[]) => {
-        if (!live || !Array.isArray(rows)) return;
-        setAvailable(
-          rows.filter((h) => !h.locked).reduce((t, h) => t + h.amount, 0),
-        );
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [partyId]);
+  const faucet = useFaucet();
+  const holdings = useHoldings();
+  const available = holdings.data
+    ? holdings.data
+        .filter((h) => !h.locked)
+        .reduce((total, h) => total + h.amount, 0)
+    : null;
 
   if (!partyId) {
     // when a hosted Canton gateway is configured, offer the real CIP-0103 wallet
@@ -51,6 +34,7 @@ export function ConnectWallet() {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            data-tour="connect-wallet"
             onClick={() => connectCanton()}
             disabled={connecting}
             className="rounded-full bg-wallet px-4 py-2 text-sm font-semibold text-wallet-foreground disabled:opacity-60"
@@ -73,6 +57,7 @@ export function ConnectWallet() {
     return (
       <button
         type="button"
+        data-tour="connect-wallet"
         onClick={() => connect()}
         disabled={connecting}
         className="rounded-full bg-wallet px-4 py-2 text-sm font-semibold text-wallet-foreground disabled:opacity-60"
@@ -91,8 +76,18 @@ export function ConnectWallet() {
           <span className="ml-1 text-muted">nUSD</span>
         </span>
       ) : null}
+      <button
+        type="button"
+        data-tour="faucet"
+        onClick={() => faucet.mutate()}
+        disabled={faucet.isPending}
+        className="rounded-full bg-wallet px-3 py-1.5 text-sm font-semibold text-wallet-foreground disabled:opacity-60"
+        title="Get test nUSD"
+      >
+        {faucet.isPending ? "…" : "Faucet"}
+      </button>
       <span
-        className="rounded-full bg-wallet px-3 py-1.5 text-sm font-semibold text-wallet-foreground"
+        className="rounded-full bg-surface px-3 py-1.5 text-sm font-semibold text-foreground"
         title={partyId}
       >
         {shortId(partyId)}

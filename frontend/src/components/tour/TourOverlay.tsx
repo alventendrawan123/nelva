@@ -46,7 +46,7 @@ export function TourOverlay() {
           height: box.height + PADDING * 2,
         });
       }
-      if (performance.now() - start < 900) {
+      if (performance.now() - start < 4000) {
         frame = requestAnimationFrame(measure);
       }
     };

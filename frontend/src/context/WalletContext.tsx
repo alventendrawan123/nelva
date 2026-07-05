@@ -62,6 +62,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     try {
       const p = await connectWallet(hint);
       setEmbeddedActive();
+      // a fresh wallet is empty - fund it on connect so it can transact right away
+      await fetch(`${API_BASE_URL}/faucet`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${p}` },
+      }).catch(() => {});
       setPartyId(p);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not connect wallet.");
@@ -76,11 +81,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     try {
       const p = await connectCantonWallet();
       setCantonActive(p);
-      // a fresh gateway party has no funds — top it up once so it can transact
+      // a fresh gateway party has no funds - fund the caller (Bearer) on connect
       await fetch(`${API_BASE_URL}/faucet`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ party: p }),
+        headers: { Authorization: `Bearer ${p}` },
       }).catch(() => {});
       setPartyId(p);
     } catch (e) {

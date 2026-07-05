@@ -50,6 +50,20 @@ export function useHoldings() {
   });
 }
 
+export function useFaucet() {
+  const { party } = useParty();
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useFeedback();
+  return useMutation({
+    mutationFn: () => api.faucet(party ?? ""),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["holdings"] });
+      showSuccess("Test nUSD added to your wallet.");
+    },
+    onError: (error: Error) => showError(error.message),
+  });
+}
+
 export function useMyBids() {
   const { party } = useParty();
   return useQuery({
