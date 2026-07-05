@@ -291,10 +291,12 @@ app.listen(PORT, () => {
   ledger.seed()
     .then(() => console.log("seeded."))
     .catch((e) => console.error("seed failed (continuing, /api/health still up):", e?.message ?? e));
-  // Auto-matching engine: periodically run the operator match so wallet users'
-  // bids/borrows settle on their own (like a scheduled matcher). runMatch throws
-  // when there's nothing to pair — ignore. Canton mode only.
-  if (LEDGER_MODE === "canton") {
+  // Auto-matcher is OPT-IN (AUTO_MATCH=1), default OFF so the demo is DETERMINISTIC:
+  // proposals appear only when the operator clicks "Run Match", and bids/borrows stay
+  // FREE until then. With it on, a background matcher consumes every free bid/borrow into
+  // PENDING proposals that nobody accepts; those pile up un-clearably and their bids later
+  // get archived (by re-seeds), which breaks the auditor's Verify (it re-fetches the bids).
+  if (LEDGER_MODE === "canton" && process.env.AUTO_MATCH === "1") {
     setInterval(() => { ledger.runMatch().catch(() => {}); }, 20000);
     setInterval(() => { ledger.expireProposals().catch(() => {}); }, 20000);
   }
