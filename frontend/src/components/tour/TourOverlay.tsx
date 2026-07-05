@@ -3,7 +3,6 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { MousePointerClick, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/Button";
 import { TOUR_STEPS } from "./steps";
 import { useTour } from "./TourContext";
 
@@ -206,14 +205,14 @@ export function TourOverlay() {
                 />
               ))}
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
                 onClick={index > 0 ? prev : stop}
-                className="px-4 py-2 text-xs"
+                className="text-xs font-semibold text-muted transition-colors hover:text-foreground"
               >
                 {index > 0 ? "Back" : "Skip"}
-              </Button>
+              </button>
               {clickToAdvance && rect ? (
                 <motion.span
                   className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary"
@@ -229,9 +228,13 @@ export function TourOverlay() {
                   Click the button
                 </motion.span>
               ) : (
-                <Button onClick={next} className="px-4 py-2 text-xs">
+                <button
+                  type="button"
+                  onClick={next}
+                  className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary-hover"
+                >
                   {isLast ? "Finish" : "Next"}
-                </Button>
+                </button>
               )}
             </div>
           </div>
