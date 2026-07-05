@@ -47,6 +47,7 @@ export function useHoldings() {
     queryKey: ["holdings", party],
     queryFn: () => api.holdings(party ?? ""),
     enabled: Boolean(party),
+    refetchInterval: 8000,
   });
 }
 

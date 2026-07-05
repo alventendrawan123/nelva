@@ -34,7 +34,10 @@ export const api = {
 
   me: (party: string) => call<Me>("/me", { party, schema: meSchema }),
   holdings: (party: string) =>
-    call<Holding[]>("/holdings", { party, schema: holdingSchema.array() }),
+    call<Holding[]>("/wallet/holdings", {
+      party,
+      schema: holdingSchema.array(),
+    }),
   faucet: (party: string) => call("/faucet", { party, method: "POST" }),
 
   myBids: (party: string) =>

@@ -34,6 +34,23 @@ type WalletValue = {
 
 const WalletCtx = createContext<WalletValue | null>(null);
 
+// A freshly onboarded party can take a moment to propagate on DevNet, so the
+// first faucet call may fail. Retry a few times; the backend only funds once.
+async function faucetWithRetry(party: string): Promise<void> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/faucet`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${party}` },
+      });
+      if (res.ok) return;
+    } catch {
+      // party not ready yet - fall through to retry
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+}
+
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [partyId, setPartyId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -63,10 +80,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       const p = await connectWallet(hint);
       setEmbeddedActive();
       // a fresh wallet is empty - fund it on connect so it can transact right away
-      await fetch(`${API_BASE_URL}/faucet`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${p}` },
-      }).catch(() => {});
+      await faucetWithRetry(p);
       setPartyId(p);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not connect wallet.");
@@ -82,10 +96,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       const p = await connectCantonWallet();
       setCantonActive(p);
       // a fresh gateway party has no funds - fund the caller (Bearer) on connect
-      await fetch(`${API_BASE_URL}/faucet`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${p}` },
-      }).catch(() => {});
+      await faucetWithRetry(p);
       setPartyId(p);
     } catch (e) {
       setError(
