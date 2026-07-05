@@ -1,12 +1,8 @@
 "use client";
 
+import { WalletAddressMenu } from "@/components/layout/WalletAddressMenu";
 import { useWallet } from "@/context/WalletContext";
 import { useFaucet, useHoldings } from "@/lib/api/hooks";
-
-function shortId(id: string): string {
-  const [name, fingerprint] = id.split("::");
-  return fingerprint ? `${name}::${fingerprint.slice(0, 8)}…` : id;
-}
 
 export function ConnectWallet() {
   const {
@@ -86,12 +82,7 @@ export function ConnectWallet() {
       >
         {faucet.isPending ? "…" : "Faucet"}
       </button>
-      <span
-        className="rounded-full bg-surface px-3 py-1.5 text-sm font-semibold text-foreground"
-        title={partyId}
-      >
-        {shortId(partyId)}
-      </span>
+      <WalletAddressMenu partyId={partyId} />
       <button
         type="button"
         onClick={disconnect}
