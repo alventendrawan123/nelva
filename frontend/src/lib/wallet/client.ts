@@ -33,14 +33,36 @@ type PrepareResponse = {
   hashingSchemeVersion: string;
 };
 
+/** Is a stored party still allocated on the current ledger? Only a definitive
+ * `known:false` from the BE returns false — a transient/network error keeps the
+ * party (never wipe a valid wallet just because the check couldn't reach the BE). */
+async function partyKnown(party: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/wallet/known?party=${encodeURIComponent(party)}`,
+    );
+    if (!res.ok) return true;
+    const j = (await res.json()) as { known?: boolean };
+    return j?.known !== false;
+  } catch {
+    return true;
+  }
+}
+
 /** Onboard the browser key as a real external Canton party. Returns the party id. Idempotent. */
 export async function connectWallet(partyHint: string): Promise<string> {
   // already onboarded -> re-attach to the SAME party (don't re-onboard the key)
   const existing = wallet.party();
   if (existing) {
-    const fp = wallet.fingerprint();
-    if (fp) wallet.setSession(existing, fp);
-    return existing;
+    // A party from a previous deploy/network (e.g. a pre-DevNet sandbox onboard) is a
+    // "zombie": present in localStorage but unknown to the current ledger, so every write
+    // fails UNKNOWN_INFORMEES. Verify it's still allocated; if not, wipe + onboard fresh.
+    if (await partyKnown(existing)) {
+      const fp = wallet.fingerprint();
+      if (fp) wallet.setSession(existing, fp);
+      return existing;
+    }
+    wallet.reset();
   }
 
   const publicKey = await publicKeyDerB64();

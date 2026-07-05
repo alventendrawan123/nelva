@@ -33,6 +33,7 @@ export interface Ledger {
   holdings(viewer?: string): Promise<HoldingView[]>;
   partyId(name: string): Promise<string | null>;
   // external-party wallet relay (canton only; BE never holds the key)
+  partyKnown(party: string): Promise<boolean>;
   walletOnboard(partyHint: string, publicKeyB64: string): Promise<any>;
   walletAllocate(topologyTransactions: any[], fingerprint: string, multiHashSig: string): Promise<any>;
   walletPrepare(party: string, commands: any[], disclosedContracts?: any[]): Promise<any>;

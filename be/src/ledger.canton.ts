@@ -541,6 +541,23 @@ export class CantonLedger implements Ledger {
     return this.ensureParty(name);
   }
 
+  // Is this party actually allocated on the CURRENT ledger? A wallet party from a
+  // previous deploy/network (e.g. a pre-DevNet sandbox onboard, still in the browser's
+  // localStorage) is a "zombie": it looks connected but every write fails with
+  // UNKNOWN_INFORMEES because the participant doesn't know it. The FE calls this on
+  // re-attach to detect a zombie and re-onboard fresh instead of getting stuck.
+  async partyKnown(party: string): Promise<boolean> {
+    if (!party) return false;
+    if (!party.includes("::")) return !!(await this.lookupParty(party)); // persona hint
+    try {
+      const d = await get(`/v2/parties/${encodeURIComponent(party)}`);
+      const list = d.partyDetails ?? [];
+      return list.some((p: any) => (typeof p === "string" ? p : p.party) === party);
+    } catch {
+      return false;
+    }
+  }
+
   // ── external-party wallet relay (BE never holds the user's key) ──
   private _sync: string | null = null;
   private async synchronizerId(): Promise<string> {

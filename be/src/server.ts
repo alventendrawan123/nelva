@@ -143,6 +143,12 @@ app.post("/api/wallet/execute", h(async (req, res) => {
   res.json(await ledger.walletExecute(String(party), preparedTransaction, String(hashingSchemeVersion), String(fingerprint), String(signature)));
 }));
 app.get("/api/config", h(async (_req, res) => res.json(await ledger.config())));
+// Is a wallet party actually allocated on this ledger? FE calls this on re-attach to
+// detect a "zombie" party (in localStorage but unknown to the ledger) and re-onboard.
+app.get("/api/wallet/known", h(async (req, res) => {
+  const party = String(req.query.party ?? "").trim();
+  res.json({ known: party ? await ledger.partyKnown(party) : false });
+}));
 app.get("/api/wallet/holdings", h(async (req, res) => res.json(await ledger.walletHoldings(who(req).party ?? ""))));
 
 // ── lender ──
