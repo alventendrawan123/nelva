@@ -3,11 +3,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Check, ChevronDown, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-
-function shortId(id: string): string {
-  const [name, fingerprint] = id.split("::");
-  return fingerprint ? `${name}::${fingerprint.slice(0, 8)}…` : id;
-}
+import { shortParty } from "@/lib/format";
 
 export function WalletAddressMenu({ partyId }: { partyId: string }) {
   const [open, setOpen] = useState(false);
@@ -51,7 +47,7 @@ export function WalletAddressMenu({ partyId }: { partyId: string }) {
         title={partyId}
         className="inline-flex items-center gap-1.5 rounded-full bg-surface px-3 py-1.5 text-sm font-semibold text-foreground transition-colors hover:bg-surface-2"
       >
-        {shortId(partyId)}
+        {shortParty(partyId)}
         <motion.span
           animate={{ rotate: open ? 180 : 0 }}
           transition={{ duration: 0.2, ease: "easeOut" }}

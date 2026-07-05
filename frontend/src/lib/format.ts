@@ -14,6 +14,11 @@ export function shortId(id: string): string {
   return id.length > 16 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
 }
 
+export function shortParty(id: string): string {
+  const [name, fingerprint] = id.split("::");
+  return fingerprint ? `${name}::${fingerprint.slice(0, 8)}…` : id;
+}
+
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",

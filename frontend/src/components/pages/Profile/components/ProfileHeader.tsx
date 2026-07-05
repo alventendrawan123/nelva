@@ -1,12 +1,25 @@
 "use client";
 
-import { Copy, ExternalLink } from "lucide-react";
+import { Check, Copy, ExternalLink } from "lucide-react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { useCreditScore, useProfile } from "@/lib/api/hooks";
+import { shortParty } from "@/lib/format";
 
 export function ProfileHeader() {
   const profile = useProfile();
   const credit = useCreditScore();
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(profile.address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   const tier = credit.data?.tier ?? profile.tier;
   const repScore = credit.data?.loansRepaid ?? profile.repScore;
@@ -22,8 +35,11 @@ export function ProfileHeader() {
         </span>
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold text-foreground">
-              {profile.address}
+            <h1
+              className="text-2xl font-bold text-foreground"
+              title={profile.address}
+            >
+              {shortParty(profile.address)}
             </h1>
             <Badge tone="neutral">Canton</Badge>
             <Badge tone="warning">{tier}</Badge>
@@ -31,10 +47,15 @@ export function ProfileHeader() {
           <div className="mt-2 flex items-center gap-4 text-sm text-muted">
             <button
               type="button"
+              onClick={handleCopy}
               className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
             >
-              <Copy className="h-4 w-4" />
-              Copy
+              {copied ? (
+                <Check className="h-4 w-4 text-success" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+              {copied ? "Copied" : "Copy"}
             </button>
             <button
               type="button"
