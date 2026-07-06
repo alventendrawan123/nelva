@@ -308,7 +308,17 @@ export class CantonLedger implements Ledger {
   }
   async listBids(viewer?: string): Promise<Bid[]> {
     if (!viewer) return [];
-    return (await this.acsAs(await this.ensureParty(viewer), "Lending:SealedBid")).map((x) => this.bidDto(x));
+    const v = await this.ensureParty(viewer);
+    const op = await this.ensureParty("Operator");
+    // A bid reserved in a pending proposal is still an active SealedBid on-ledger (it's only
+    // archived at Accept), so tag it MATCHED here — otherwise the operator's auto-match is
+    // invisible in the lender's "My sealed bids" list (every bid would read OPEN forever).
+    const [bids, props] = await Promise.all([
+      this.acsAs(v, "Lending:SealedBid"),
+      this.acsAs(op, "Settlement:MatchProposal"),
+    ]);
+    const matched = new Set<string>(props.flatMap((p) => (p.arg.matchedTicks ?? []).map((t: any) => t.bidCid)));
+    return bids.map((x) => ({ ...this.bidDto(x), status: matched.has(x.cid) ? "MATCHED" : "OPEN" }));
   }
   async withdrawBid(party: string, bidId: string): Promise<any> {
     const pid = await this.ensureParty(party);
@@ -344,7 +354,16 @@ export class CantonLedger implements Ledger {
   }
   async listBorrows(viewer?: string): Promise<BorrowIntent[]> {
     if (!viewer) return [];
-    return (await this.acsAs(await this.ensureParty(viewer), "Lending:BorrowIntent")).map((x) => this.borrowDto(x));
+    const v = await this.ensureParty(viewer);
+    const op = await this.ensureParty("Operator");
+    // Same as listBids: a borrow reserved in a pending proposal is still an active BorrowIntent
+    // (archived only at Accept), so tag it MATCHED so the borrower sees the auto-match land.
+    const [borrows, props] = await Promise.all([
+      this.acsAs(v, "Lending:BorrowIntent"),
+      this.acsAs(op, "Settlement:MatchProposal"),
+    ]);
+    const matched = new Set<string>(props.map((p) => p.arg.borrowCid));
+    return borrows.map((x) => ({ ...this.borrowDto(x), status: matched.has(x.cid) ? "MATCHED" : "OPEN" }));
   }
   async listProposals(viewer?: string): Promise<MatchProposal[]> {
     if (!viewer) return [];
