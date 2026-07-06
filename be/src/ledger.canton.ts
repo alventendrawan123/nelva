@@ -348,7 +348,24 @@ export class CantonLedger implements Ledger {
   }
   async listProposals(viewer?: string): Promise<MatchProposal[]> {
     if (!viewer) return [];
-    return (await this.acsAs(await this.ensureParty(viewer), "Settlement:MatchProposal")).map((x) => this.propDto(x));
+    const v = await this.ensureParty(viewer);
+    const [props, borrows, bids] = await Promise.all([
+      this.acsAs(v, "Settlement:MatchProposal"),
+      this.acsAs(v, "Lending:BorrowIntent"),
+      this.acsAs(v, "Lending:SealedBid"),
+    ]);
+    // Hide DEAD proposals — ones whose borrow or matched bids were already archived (e.g. a
+    // leftover from a prior demo round). The auditor's Verify re-fetches those refs live, so a
+    // dead proposal can only ever fail with "contract not found". Never surfacing them keeps
+    // the Lens dropdown + its default selection on proposals that actually verify.
+    const liveBorrows = new Set(borrows.map((b) => b.cid));
+    const liveBids = new Set(bids.map((b) => b.cid)); // empty for a borrower (bids are sealed) -> bid check skipped
+    const alive = props.filter((p) => {
+      if (!liveBorrows.has(p.arg.borrowCid)) return false;
+      if (liveBids.size > 0 && !(p.arg.matchedTicks ?? []).every((t: any) => liveBids.has(t.bidCid))) return false;
+      return true;
+    });
+    return alive.map((x) => this.propDto(x));
   }
   async accept(party: string, proposalId: string): Promise<Loan> {
     const bor = await this.ensureParty(party);
