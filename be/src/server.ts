@@ -297,9 +297,13 @@ app.listen(PORT, () => {
   // is visible in the terminal / Railway logs during a demo. The manual "Run Match" button still
   // self-heals so a judge always gets a verifiable proposal even on a starved book.
   if (LEDGER_MODE === "canton" && process.env.AUTO_MATCH === "1") {
+    console.log("[auto-match] engine armed — settling open bids/borrows every 20s");
     setInterval(() => {
       ledger.runMatch(false)
-        .then((props) => { for (const p of props) console.log(`[auto-match] paired borrow ${p.borrowId} -> ${p.principal} @ ${(Number(p.blendedRate) * 100).toFixed(2)}% (proposal ${String(p.proposalId).slice(0, 12)}…)`); })
+        .then((props) => {
+          if (props.length) for (const p of props) console.log(`[auto-match] paired borrow ${p.borrowId} -> ${p.principal} @ ${(Number(p.blendedRate) * 100).toFixed(2)}% (proposal ${String(p.proposalId).slice(0, 12)}…)`);
+          else console.log("[auto-match] tick — no open pair to settle");
+        })
         .catch((e) => console.error("[auto-match] error:", e?.message ?? e));
     }, 20000);
     setInterval(() => { ledger.expireProposals().catch(() => {}); }, 20000);
