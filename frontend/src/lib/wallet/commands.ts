@@ -280,6 +280,8 @@ export async function repayAsWallet(loanId: string): Promise<void> {
           choiceArgument: {
             repaymentCid: source.cid,
             creditScoreCid: info.creditScoreCid,
+            // Loan.Repay retires each lender's LoanPosition; the BE discloses them + returns the cids.
+            positionCids: info.positionCids ?? [],
           },
         },
       },

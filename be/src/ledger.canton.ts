@@ -737,17 +737,22 @@ export class CantonLedger implements Ledger {
     const ticks: any[] = loan.arg.ticks ?? [];
     const owed = ticks.reduce((a, t) => a + Number(t.amount) + Number(t.amount) * Number(t.rate), 0);
     const creditScoreCid = await this.ensureCreditScore(bor);
+    // Repay pays principal+interest to each lender and RETIRES their LoanPosition receipts, which
+    // it takes as `positionCids`. LoanPositions are observed only by the lender (borrower is not a
+    // stakeholder), so the wallet borrower can't see them — fetch by loanKey and disclose them.
+    const positions = (await this.acsAs(op, "Settlement:LoanPosition")).filter((x) => x.arg.loanKey === loan.arg.loanKey);
+    const positionCids = positions.map((x) => x.cid);
     const blobs = await this.acsWithBlobs(op);
-    // the borrower can't see the CreditScore until it lands in its ACS, and never
-    // sees the collateral escrow (DrawLocked to the operator at Accept) — Repay
-    // transfers it back, so both must be disclosed for the wallet's prepare.
-    const disclosed = [creditScoreCid, loan.arg.collateralCid]
+    // the borrower can't see the CreditScore until it lands in its ACS, never sees the collateral
+    // escrow (DrawLocked to the operator at Accept), and never sees the per-lender LoanPositions —
+    // all must be disclosed for the wallet's prepare.
+    const disclosed = [creditScoreCid, loan.arg.collateralCid, ...positionCids]
       .map((cid) => {
         const c = blobs.get(cid);
         return c ? { templateId: c.templateId, contractId: cid, createdEventBlob: c.blob, synchronizerId: sync } : null;
       })
       .filter(Boolean);
-    return { loanId, owed, creditScoreCid, disclosed };
+    return { loanId, owed, creditScoreCid, positionCids, disclosed };
   }
   // Top-up faucet: mint one 1000 nUSD Holding to the wallet party on every call, so a user who
   // has locked/spent their funds (collateral, sealed bids) can refill and keep exploring.
