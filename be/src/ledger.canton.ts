@@ -354,15 +354,17 @@ export class CantonLedger implements Ledger {
       this.acsAs(v, "Lending:BorrowIntent"),
       this.acsAs(v, "Lending:SealedBid"),
     ]);
-    // Hide DEAD proposals — ones whose borrow or matched bids were already archived (e.g. a
-    // leftover from a prior demo round). The auditor's Verify re-fetches those refs live, so a
-    // dead proposal can only ever fail with "contract not found". Never surfacing them keeps
-    // the Lens dropdown + its default selection on proposals that actually verify.
+    // Hide DEAD proposals — ones whose borrow or any input bid was already archived (e.g. a
+    // leftover from a prior demo round). Verify (Settlement.daml) re-fetches borrowCid AND the
+    // FULL inputBidCids set ("incl losers"), so a proposal is only verifiable if ALL of those
+    // are still live — checking just matchedTicks misses a loser bid that later won+Accepted
+    // elsewhere and got archived, which would still 409 Verify. Never surfacing dead proposals
+    // keeps the Lens dropdown + its default selection on proposals that actually verify.
     const liveBorrows = new Set(borrows.map((b) => b.cid));
     const liveBids = new Set(bids.map((b) => b.cid)); // empty for a borrower (bids are sealed) -> bid check skipped
     const alive = props.filter((p) => {
       if (!liveBorrows.has(p.arg.borrowCid)) return false;
-      if (liveBids.size > 0 && !(p.arg.matchedTicks ?? []).every((t: any) => liveBids.has(t.bidCid))) return false;
+      if (liveBids.size > 0 && !(p.arg.inputBidCids ?? []).every((c: string) => liveBids.has(c))) return false;
       return true;
     });
     return alive.map((x) => this.propDto(x));
@@ -429,14 +431,25 @@ export class CantonLedger implements Ledger {
       // on-ledger RunMatch choice + auditor Verify (not a mock; genuine on-ledger contracts).
       if (!freeBids.length || !freeBorrows.length) {
         await this.setPrice("USD", 1.0);
-        const a = await this.createBidRaw("LenderA", { amount: 100, rate: 0.03 });
-        const b = await this.createBidRaw("LenderB", { amount: 100, rate: 0.05 });
-        const bor = await this.createBorrowRaw("Borrower", { amount: 150, maxRate: 0.06, collateralAmount: 300 });
-        freeBids = [a, b];
-        freeBorrows = [bor];
+        // Mint ONLY the starved side and KEEP the live side, so a real bid/borrow a tester just
+        // posted is matched against the minted counterpart instead of being thrown away. (An
+        // earlier version overwrote both sides, silently dropping a tester's live borrow.)
+        if (!freeBids.length) {
+          freeBids = [
+            await this.createBidRaw("LenderA", { amount: 100, rate: 0.03 }),
+            await this.createBidRaw("LenderB", { amount: 100, rate: 0.05 }),
+          ];
+        }
+        if (!freeBorrows.length) {
+          freeBorrows = [await this.createBorrowRaw("Borrower", { amount: 150, maxRate: 0.06, collateralAmount: 300 })];
+        }
       }
-      // RunMatch now validates each borrow's declared tier against an operator-signed
-      // CreditScore; pass all known scores so honest borrows (tier == score) match.
+      // RunMatch validates each borrow's declared tier against an operator-signed CreditScore
+      // and SILENTLY drops any borrow without one. Wallet borrowers don't otherwise get a score
+      // that survives to match time, so their intents could never be matched. Ensure a score
+      // exists for every free borrow's borrower first, then pass all scores so honest borrows
+      // (tier == score) match. (Bronze default == the tier a fresh borrow declares.)
+      await Promise.all([...new Set(freeBorrows.map((b) => b.arg.borrower as string))].map((p) => this.ensureCreditScore(p)));
       const scores = await this.acsAs(op, "Credit:CreditScore");
       const oracle = await this.ensureParty("Oracle");
       const rnd = this.made(await this.create([op], "Settlement:MatchRound", { operator: op, auditor: aud }), "Settlement:MatchRound");
