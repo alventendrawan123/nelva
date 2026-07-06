@@ -219,10 +219,17 @@ export async function borrowAsWallet(
  *  and creates the Loan, all in one wallet-signed transaction. The BE supplies the
  *  disclosed contracts (the matched bids + their locked holdings) the borrower can't see. */
 export async function acceptAsWallet(proposalCid: string): Promise<void> {
+  const party = activeParty();
+  if (!party) throw new Error("Wallet not connected.");
   const { packageId } = await getConfig();
+  // accept-info is auth-gated (it returns rivals' matched SealedBid blobs) — without the
+  // Bearer it 401s, info.disclosed falls back to [], and the Accept then prepares with no
+  // disclosed bids so the ledger can't resolve them (409 "contract not found").
   const info = await fetch(
     `${API_BASE_URL}/wallet/accept-info?proposalId=${encodeURIComponent(proposalCid)}`,
+    { headers: { Authorization: `Bearer ${party}` } },
   ).then((r) => r.json());
+  if (info?.error) throw new Error(String(info.error));
   await submit(
     [
       {
