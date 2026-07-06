@@ -291,13 +291,17 @@ app.listen(PORT, () => {
   ledger.seed()
     .then(() => console.log("seeded."))
     .catch((e) => console.error("seed failed (continuing, /api/health still up):", e?.message ?? e));
-  // Auto-matcher is OPT-IN (AUTO_MATCH=1), default OFF so the demo is DETERMINISTIC:
-  // proposals appear only when the operator clicks "Run Match", and bids/borrows stay
-  // FREE until then. With it on, a background matcher consumes every free bid/borrow into
-  // PENDING proposals that nobody accepts; those pile up un-clearably and their bids later
-  // get archived (by re-seeds), which breaks the auditor's Verify (it re-fetches the bids).
+  // Auto-matcher is OPT-IN (AUTO_MATCH=1). When on, the operator's engine settles REAL open
+  // demand every 20s (runMatch(false) — no self-heal, so it never fabricates persona bids/
+  // borrows and never piles up junk). Each round that pairs something is logged, so the engine
+  // is visible in the terminal / Railway logs during a demo. The manual "Run Match" button still
+  // self-heals so a judge always gets a verifiable proposal even on a starved book.
   if (LEDGER_MODE === "canton" && process.env.AUTO_MATCH === "1") {
-    setInterval(() => { ledger.runMatch().catch(() => {}); }, 20000);
+    setInterval(() => {
+      ledger.runMatch(false)
+        .then((props) => { for (const p of props) console.log(`[auto-match] paired borrow ${p.borrowId} -> ${p.principal} @ ${(Number(p.blendedRate) * 100).toFixed(2)}% (proposal ${String(p.proposalId).slice(0, 12)}…)`); })
+        .catch((e) => console.error("[auto-match] error:", e?.message ?? e));
+    }, 20000);
     setInterval(() => { ledger.expireProposals().catch(() => {}); }, 20000);
   }
 });

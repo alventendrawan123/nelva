@@ -65,12 +65,17 @@ export function useFaucet() {
   });
 }
 
+// Party-scoped feeds poll so the operator's auto-matcher is visible LIVE: a just-posted
+// bid/borrow flips OPEN -> MATCHED and its pending proposal appears without a manual refresh.
+const FEED_POLL_MS = 4000;
+
 export function useMyBids() {
   const { party } = useParty();
   return useQuery({
     queryKey: keys.bids(party),
     queryFn: () => api.myBids(party ?? ""),
     enabled: Boolean(party),
+    refetchInterval: FEED_POLL_MS,
   });
 }
 
@@ -80,6 +85,7 @@ export function useMyBorrows() {
     queryKey: keys.borrows(party),
     queryFn: () => api.myBorrows(party ?? ""),
     enabled: Boolean(party),
+    refetchInterval: FEED_POLL_MS,
   });
 }
 
@@ -89,6 +95,7 @@ export function useProposals() {
     queryKey: keys.proposals(party),
     queryFn: () => api.proposals(party ?? ""),
     enabled: Boolean(party),
+    refetchInterval: FEED_POLL_MS,
   });
 }
 
@@ -98,6 +105,7 @@ export function useLoans() {
     queryKey: keys.loans(party),
     queryFn: () => api.loans(party ?? ""),
     enabled: Boolean(party),
+    refetchInterval: FEED_POLL_MS,
   });
 }
 
@@ -115,6 +123,7 @@ export function useLensProposals() {
   return useQuery({
     queryKey: ["proposals", "Operator"],
     queryFn: () => api.proposals("Operator"),
+    refetchInterval: FEED_POLL_MS,
   });
 }
 

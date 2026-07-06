@@ -401,7 +401,11 @@ export class CantonLedger implements Ledger {
   }
 
   private _matching = false;
-  async runMatch(): Promise<MatchProposal[]> {
+  // allowSelfHeal: the MANUAL "Run Match" button (true) may mint a fresh isolated pair when the
+  // book is starved, so a judge always gets a verifiable proposal. The background auto-matcher
+  // passes false — it must only settle REAL open demand, never fabricate persona bids/borrows
+  // every tick (which would pile up junk proposals forever).
+  async runMatch(allowSelfHeal = true): Promise<MatchProposal[]> {
     // mutex: a slow (>20s) tick must not overlap the interval or a manual run-match, or
     // both rounds fetch/propose the same free bids -> duplicate proposals / races.
     if (this._matching) return [];
@@ -429,7 +433,7 @@ export class CantonLedger implements Ledger {
       // that case mint a fresh, isolated honest lender-pair + borrower and match exactly
       // those — so Run Match always yields a real, verifiable proposal through the SAME
       // on-ledger RunMatch choice + auditor Verify (not a mock; genuine on-ledger contracts).
-      if (!freeBids.length || !freeBorrows.length) {
+      if (allowSelfHeal && (!freeBids.length || !freeBorrows.length)) {
         await this.setPrice("USD", 1.0);
         // Mint ONLY the starved side and KEEP the live side, so a real bid/borrow a tester just
         // posted is matched against the minted counterpart instead of being thrown away. (An
@@ -444,6 +448,9 @@ export class CantonLedger implements Ledger {
           freeBorrows = [await this.createBorrowRaw("Borrower", { amount: 150, maxRate: 0.06, collateralAmount: 300 })];
         }
       }
+      // No real (or minted) pair to match -> nothing to do. Bail before creating a MatchRound so
+      // the 20s auto-matcher doesn't churn empty rounds every tick.
+      if (!freeBids.length || !freeBorrows.length) return [];
       // RunMatch validates each borrow's declared tier against an operator-signed CreditScore
       // and SILENTLY drops any borrow without one. Wallet borrowers don't otherwise get a score
       // that survives to match time, so their intents could never be matched. Ensure a score

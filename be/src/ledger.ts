@@ -19,7 +19,7 @@ export interface Ledger {
   listLoans(viewer?: string): Promise<Loan[]>;
   repay(party: string, loanId: string): Promise<any>;
   // operator
-  runMatch(): Promise<MatchProposal[]>;
+  runMatch(allowSelfHeal?: boolean): Promise<MatchProposal[]>;
   runCheatMatch(): Promise<MatchProposal[]>;
   setPrice(instrument: string, price: number): Promise<any>;
   liquidate(loanId: string): Promise<any>;
