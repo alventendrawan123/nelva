@@ -749,8 +749,11 @@ export class CantonLedger implements Ledger {
       .filter(Boolean);
     return { loanId, owed, creditScoreCid, disclosed };
   }
-  // Top-up faucet: mint 200 nUSD to the wallet party on every call, so a user who has
-  // locked/spent their funds (collateral, sealed bids) can refill and keep exploring.
+  // Top-up faucet: mint one 1000 nUSD Holding to the wallet party on every call, so a user who
+  // has locked/spent their funds (collateral, sealed bids) can refill and keep exploring.
+  // Minting as a SINGLE holding (not many small chunks) matters: a wallet borrow collateralizes
+  // from ONE unlocked Holding (the Asset template has no Merge choice), so a fragmented balance
+  // of small chunks can't back a large collateral. One 1000 chunk backs a borrow up to ~500.
   // nUSD is test money on DevNet — draining is harmless, so no once-only cap.
   private _faucetLocks = new Map<string, Promise<{ party: string; funded: boolean }>>();
   async walletFaucet(party: string) {
@@ -760,7 +763,7 @@ export class CantonLedger implements Ledger {
     const inflight = this._faucetLocks.get(pid);
     if (inflight) return inflight;
     const job = (async () => {
-      await this.fundPid(pid, 200);
+      await this.fundPid(pid, 1000);
       return { party: pid, funded: true };
     })();
     this._faucetLocks.set(pid, job);
