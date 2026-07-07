@@ -123,6 +123,25 @@ template MatchProposal
     choice Accept : ContractId Loan
       controller borrower
       do
+        -- PREVENT-BY-CONSTRUCTION: re-run the SAME deterministic match the auditor does, right
+        -- here, and REFUSE to settle if the published ticks / blended rate diverge from the
+        -- honest result. A fabricated (cheat) proposal can therefore never become a Loan — the
+        -- borrower's Accept itself rejects it, so the auditor's Verify becomes a redundant
+        -- attestation rather than the only line of defence. (Requires the committed input bids
+        -- to still be live at accept time — same joint context RunMatch/Verify use.)
+        checkBids <- mapA (\cid -> fetch cid) inputBidCids
+        checkBorrow <- fetch borrowCid
+        let recomputed = runDeterministicMatch (map bidToInput checkBids) roundBorrows
+            thisFill = find (\f -> f.borrowId == checkBorrow.borrowId) recomputed.fills
+            expectedTicks = case thisFill of
+                              Some f -> f.ticks
+                              None -> []
+            expectedBlended = case thisFill of
+                                Some f -> f.blendedRate
+                                None -> 0.0
+            publishedTicks = map (\mt -> Tick mt.lender mt.bidId mt.amount mt.rate) matchedTicks
+        assertMsg "proposal diverges from the honest recompute — refusing to settle"
+          (expectedTicks == publishedTicks && expectedBlended == blendedRate)
         _ <- mapA
               (\t -> exercise t.bidCid DrawForMatch with
                        matchedRate = t.rate
