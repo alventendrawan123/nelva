@@ -18,7 +18,7 @@ const LEDGER = process.env.JSON_LEDGER_API || "https://ledger-api.validator.devn
 const NS = process.env.NELVA_NAMESPACE || "1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8";
 const PREFIX = process.env.NELVA_PARTY_PREFIX || "nelva-";
 const ENV_PKG = process.env.NELVA_PACKAGE_ID?.trim();
-const PKG = ENV_PKG && /^[0-9a-f]{64}$/.test(ENV_PKG) ? ENV_PKG : "198e9be837647ec88bec2e2b7d636977bb2ed1e4e0b7e51d481073d626e98585";
+const PKG = ENV_PKG && /^[0-9a-f]{64}$/.test(ENV_PKG) ? ENV_PKG : "27da556acd65944ceb385c82fa94c3a64551b9bb263ad4668eaa55e9ba8e21c9";
 const AUDITOR = `${PREFIX}Auditor::${NS}`;
 const OPERATOR = `${PREFIX}Operator::${NS}`;
 const tid = (s) => `${PKG}:Nelva.${s}`;
@@ -72,7 +72,8 @@ async function activeProposals() {
     { activeAtOffset: end, eventFormat: { filtersByParty: { [OPERATOR]: {} }, verbose: true } });
   const rows = arr.map((e) => e?.contractEntry?.JsActiveContract?.createdEvent).filter(Boolean);
   const live = new Set(rows.map((c) => c.contractId));
-  const props = rows.filter((c) => String(c.templateId).endsWith("Nelva.Settlement:MatchProposal"));
+  // this package's proposals only (an SC upgrade leaves the old package's proposals on-ledger too)
+  const props = rows.filter((c) => String(c.templateId) === tid("Settlement:MatchProposal"));
   return props.map((p) => {
     const a = p.createArgument;
     const refsLive = live.has(a.borrowCid) && (a.inputBidCids ?? []).every((c) => live.has(c));

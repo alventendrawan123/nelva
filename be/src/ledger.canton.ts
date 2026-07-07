@@ -18,7 +18,7 @@ const BASE = process.env.JSON_LEDGER_API ?? "http://localhost:7575";
 const ENV_PKG = process.env.NELVA_PACKAGE_ID?.trim();
 const PKG = ENV_PKG && /^[0-9a-f]{64}$/.test(ENV_PKG)
   ? ENV_PKG
-  : "198e9be837647ec88bec2e2b7d636977bb2ed1e4e0b7e51d481073d626e98585";
+  : "27da556acd65944ceb385c82fa94c3a64551b9bb263ad4668eaa55e9ba8e21c9";
 const USER = process.env.LEDGER_USER_ID ?? "nelva-be";
 // On a SHARED validator (e.g. 5N DevNet sandbox) the participant namespace is shared, so a
 // bare hint like "Operator" collides with another team's "Operator". A prefix scopes our
@@ -219,7 +219,11 @@ export class CantonLedger implements Ledger {
     const out: CW[] = [];
     for (const e of arr) {
       const ce = e?.contractEntry?.JsActiveContract?.createdEvent;
-      if (ce && String(ce.templateId).endsWith("Nelva." + tmpl)) out.push({ cid: ce.contractId, arg: ce.createArgument });
+      // Match THIS package's templates only. After an SC upgrade (e.g. 0.1.0 -> 0.2.0) two
+      // packages define the same "Nelva.Settlement:MatchProposal" module path; without the
+      // package-id prefix the adapter would also pick up the previous package's stale contracts
+      // (and then fail to exercise them under the new package id).
+      if (ce && String(ce.templateId) === tid(tmpl)) out.push({ cid: ce.contractId, arg: ce.createArgument });
     }
     return out;
   }
