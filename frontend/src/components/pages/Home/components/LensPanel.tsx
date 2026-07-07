@@ -3,15 +3,12 @@
 import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangle,
-  CheckCircle2,
   Eye,
   Play,
   RotateCcw,
   ShieldCheck,
-  ShieldQuestion,
   Sliders,
   User,
-  XCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { QueryState } from "@/components/shared/QueryState";
@@ -23,9 +20,8 @@ import {
   useLensProposals,
   useRunMatch,
   useSeed,
-  useVerify,
 } from "@/lib/api/hooks";
-import type { AuditBadge, LensView } from "@/lib/api/schemas";
+import type { LensView } from "@/lib/api/schemas";
 import { formatAmount, formatRate, shortId } from "@/lib/format";
 import { PanelHeading } from "./PanelHeading";
 
@@ -122,7 +118,6 @@ export function LensPanel() {
   const runMatch = useRunMatch();
   const cheatMatch = useCheatMatch();
   const seed = useSeed();
-  const verify = useVerify();
 
   const activeId = selected || proposals.data?.[0]?.proposalId || "";
   const lens = useLens(activeId);
@@ -261,11 +256,28 @@ export function LensPanel() {
 
             <section>
               <SectionLabel>Auditor</SectionLabel>
-              <VerdictBanner
-                badge={badge}
-                isVerifying={verify.isPending}
-                onVerify={() => verify.mutate(activeId)}
-              />
+              <Card
+                className="flex flex-col gap-4 border border-border bg-surface p-5 sm:flex-row sm:items-center"
+                data-tour="auditor-note"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2 text-accent">
+                  <ShieldCheck className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-foreground">
+                    Verified independently — not from this app
+                  </p>
+                  <p className="mt-0.5 text-sm text-muted">
+                    The auditor is its own process. It connects straight to the
+                    ledger and re-runs the match on-chain — run{" "}
+                    <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-foreground">
+                      node auditor/audit.mjs
+                    </span>{" "}
+                    in a terminal. Its on-ledger verdict shows above as the Audit
+                    Verdict; the operator&apos;s app can&apos;t fake it.
+                  </p>
+                </div>
+              </Card>
             </section>
           </div>
         ) : null}
@@ -274,81 +286,6 @@ export function LensPanel() {
   );
 }
 
-function VerdictBanner({
-  badge,
-  isVerifying,
-  onVerify,
-}: {
-  badge: AuditBadge | null;
-  isVerifying: boolean;
-  onVerify: () => void;
-}) {
-  const isGreen = badge?.verdict === "GREEN";
-  const isRed = badge?.verdict === "RED";
-
-  const tone = isGreen
-    ? "border-success/30 bg-success/10"
-    : isRed
-      ? "border-danger/30 bg-danger/10"
-      : "border-border bg-surface";
-
-  return (
-    <Card
-      className={`flex flex-col gap-4 border p-5 sm:flex-row sm:items-center sm:justify-between ${tone}`}
-    >
-      <div className="flex items-start gap-3">
-        <span
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
-            isGreen
-              ? "bg-success/15 text-success"
-              : isRed
-                ? "bg-danger/15 text-danger"
-                : "bg-surface-2 text-muted"
-          }`}
-        >
-          {isGreen ? (
-            <CheckCircle2 className="h-5 w-5" />
-          ) : isRed ? (
-            <XCircle className="h-5 w-5" />
-          ) : (
-            <ShieldQuestion className="h-5 w-5" />
-          )}
-        </span>
-        <div>
-          <p
-            className={`text-sm font-bold ${
-              isGreen
-                ? "text-success"
-                : isRed
-                  ? "text-danger"
-                  : "text-foreground"
-            }`}
-          >
-            {isGreen
-              ? "Honest match"
-              : isRed
-                ? "Cheat detected"
-                : "Not verified yet"}
-          </p>
-          <p className="mt-0.5 text-sm text-muted">
-            {badge
-              ? badge.reason
-              : "Let the auditor re-run the match over every bid to prove it is honest."}
-          </p>
-        </div>
-      </div>
-      <Button
-        onClick={onVerify}
-        disabled={isVerifying}
-        className="shrink-0"
-        data-tour="verify-btn"
-      >
-        <ShieldCheck className="h-4 w-4" />
-        {isVerifying ? "Verifying..." : "Verify"}
-      </Button>
-    </Card>
-  );
-}
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (

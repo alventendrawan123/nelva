@@ -81,11 +81,10 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "verify-green",
-    target: "verify-btn",
+    target: "auditor-note",
     title: "8. Prove it was honest",
-    body: "Click Auditor Verify. It re-runs the match over every bid, including the losers. An honest match shows a GREEN badge.",
+    body: "The auditor isn't a button here - it's a separate process. Run `node auditor/audit.mjs` in a terminal: it connects straight to the ledger and re-runs the match over every bid, including the losers. An honest match returns a GREEN badge that lands in the Audit Verdict tile above. Press Next.",
     placement: "top",
-    clickToAdvance: true,
     onEnter: (a) => a.setActiveHomeTab("Lens"),
   },
   {
@@ -99,11 +98,10 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "verify-red",
-    target: "verify-btn",
+    target: "auditor-note",
     title: "10. The cheat is caught",
-    body: "Click Auditor Verify again. The badge flips RED with the reason. Private, but a cheater still gets caught - this is the differentiator.",
+    body: "Run the auditor in the terminal again - it flips RED with the reason. Private, on-ledger, and independent of the operator's app: a cheater still gets caught. This is the differentiator. Press Next.",
     placement: "top",
-    clickToAdvance: true,
     onEnter: (a) => a.setActiveHomeTab("Lens"),
   },
   {
