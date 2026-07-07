@@ -231,12 +231,12 @@ export class CantonLedger implements Ledger {
   // ── mappers ──
   private bidDto(x: CW): Bid {
     const a = x.arg;
-    return { bidId: a.bidId, lender: nameOf(a.lender), amount: Number(a.amount), rate: Number(a.bidRate), instrument: a.instrument, status: "OPEN", deadline: a.deadline };
+    return { bidId: a.bidId, cid: x.cid, lender: nameOf(a.lender), amount: Number(a.amount), rate: Number(a.bidRate), instrument: a.instrument, status: "OPEN", deadline: a.deadline };
   }
   private borrowDto(x: CW): BorrowIntent {
     const a = x.arg, tier = a.tier as Tier;
     const collateralAmount = Number(a.collateralAmount ?? 0);
-    return { borrowId: a.borrowId, borrower: nameOf(a.borrower), amount: Number(a.amount), maxRate: Number(a.maxRate), tier, requiredCollateral: Number(a.amount) * TIER_MULTIPLIER[tier], collateralAmount, instrument: a.instrument, status: "OPEN" };
+    return { borrowId: a.borrowId, cid: x.cid, borrower: nameOf(a.borrower), amount: Number(a.amount), maxRate: Number(a.maxRate), tier, requiredCollateral: Number(a.amount) * TIER_MULTIPLIER[tier], collateralAmount, instrument: a.instrument, status: "OPEN" };
   }
   private ticksDto(ts: any[]) { return (ts ?? []).map((t) => ({ lender: nameOf(t.lender), bidId: t.bidId, amount: Number(t.amount), rate: Number(t.rate) })); }
   private propDto(x: CW): MatchProposal {
@@ -836,6 +836,27 @@ export class CantonLedger implements Ledger {
     const tree = await this.exercise([bor], "Settlement:Loan", loanId, "ClaimExcess", { priceCid: price.cid }, [op]);
     const newLoan = this.loanDto(this.made(tree, "Settlement:Loan"));
     return { loanId: newLoan.loanId, excessReturned: excess, remainingCollateral: requiredCollateral };
+  }
+  // Info a WALLET borrower needs to sign ClaimExcess itself: the oracle price cid to pass, and
+  // the disclosed blobs for the price (oracle-signed) + the operator-owned collateral escrow —
+  // neither is in the borrower's ACS, so the wallet's prepare can't resolve them without these.
+  async walletClaimExcessInfo(party: string, loanId: string) {
+    const sync = await this.synchronizerId();
+    const bor = await this.ensureParty(party);
+    const op = await this.ensureParty("Operator");
+    const loan = (await this.acsAs(bor, "Settlement:Loan")).find((l) => l.cid === loanId);
+    if (!loan) throw new Error("loan not found");
+    const excess = Number(loan.arg.collateralAmount) - Number(loan.arg.requiredCollateral);
+    if (!(excess > 0)) throw new Error("no excess collateral to claim");
+    const price = await this.latestPrice(loan.arg.instrument ?? "USD");
+    const blobs = await this.acsWithBlobs(op);
+    const disclosed = [price.cid, loan.arg.collateralCid]
+      .map((cid) => {
+        const c = blobs.get(cid);
+        return c ? { templateId: c.templateId, contractId: cid, createdEventBlob: c.blob, synchronizerId: sync } : null;
+      })
+      .filter(Boolean);
+    return { loanId, excess, priceCid: price.cid, disclosed };
   }
 
   // swap

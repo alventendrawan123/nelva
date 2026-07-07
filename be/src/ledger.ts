@@ -42,6 +42,7 @@ export interface Ledger {
   walletHoldings(party: string): Promise<any[]>;
   walletAcceptInfo(proposalCid: string): Promise<any>;
   walletRepayInfo(party: string, loanId: string): Promise<any>;
+  walletClaimExcessInfo(party: string, loanId: string): Promise<any>;
   walletFaucet(party: string): Promise<any>;
 
   // ── extended additions ──

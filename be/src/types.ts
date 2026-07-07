@@ -25,6 +25,7 @@ export const TIER_MULTIPLIER: Record<Tier, number> = {
 
 export interface Bid {
   bidId: string;
+  cid?: string; // on-ledger contract id — needed for a wallet to WithdrawBid (own signature)
   lender: string;
   amount: number;
   rate: number; // lender's reservation rate, e.g. 0.05
@@ -35,6 +36,7 @@ export interface Bid {
 
 export interface BorrowIntent {
   borrowId: string;
+  cid?: string; // on-ledger contract id — needed for a wallet to Cancel (own signature)
   borrower: string;
   amount: number;
   maxRate: number;

@@ -307,3 +307,63 @@ export async function rejectAsWallet(proposalCid: string): Promise<void> {
     },
   ]);
 }
+
+/** Cancel an unmatched borrow intent as the wallet borrower and reclaim the collateral.
+ *  Asset.Unlock is controller=owner=borrower, so the borrower's signature suffices — no
+ *  disclosed contracts, no operator authority. */
+export async function cancelBorrowAsWallet(borrowCid: string): Promise<void> {
+  const { packageId } = await getConfig();
+  await submit([
+    {
+      ExerciseCommand: {
+        templateId: `${packageId}:Nelva.Lending:BorrowIntent`,
+        contractId: borrowCid,
+        choice: "Cancel",
+        choiceArgument: {},
+      },
+    },
+  ]);
+}
+
+/** Withdraw a sealed bid as the wallet lender after its deadline (anti-griefing) and
+ *  reclaim the locked funds. Controller=lender; the SC rejects it before the deadline. */
+export async function withdrawBidAsWallet(bidCid: string): Promise<void> {
+  const { packageId } = await getConfig();
+  await submit([
+    {
+      ExerciseCommand: {
+        templateId: `${packageId}:Nelva.Lending:SealedBid`,
+        contractId: bidCid,
+        choice: "WithdrawBid",
+        choiceArgument: {},
+      },
+    },
+  ]);
+}
+
+/** Reclaim collateral ABOVE the required amount on an active loan, wallet-signed. The
+ *  borrower can't see the oracle price nor the operator-owned escrow, so the BE discloses
+ *  both and returns the price cid to pass. */
+export async function claimExcessAsWallet(loanCid: string): Promise<void> {
+  const party = activeParty();
+  if (!party) throw new Error("Wallet not connected.");
+  const { packageId } = await getConfig();
+  const info = await fetch(
+    `${API_BASE_URL}/wallet/claim-excess-info?party=${encodeURIComponent(party)}&loanId=${encodeURIComponent(loanCid)}`,
+    { headers: { Authorization: `Bearer ${party}` } },
+  ).then((r) => r.json());
+  if (info?.error) throw new Error(String(info.error));
+  await submit(
+    [
+      {
+        ExerciseCommand: {
+          templateId: `${packageId}:Nelva.Settlement:Loan`,
+          contractId: loanCid,
+          choice: "ClaimExcess",
+          choiceArgument: { priceCid: info.priceCid },
+        },
+      },
+    ],
+    info.disclosed ?? [],
+  );
+}

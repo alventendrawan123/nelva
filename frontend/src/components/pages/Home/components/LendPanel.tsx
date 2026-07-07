@@ -7,7 +7,7 @@ import { AmountField } from "@/components/ui/AmountField";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { TokenChip } from "@/components/ui/TokenChip";
-import { useMyBids, usePlaceBid } from "@/lib/api/hooks";
+import { useMyBids, usePlaceBid, useWithdrawBid } from "@/lib/api/hooks";
 import { formatAmount, formatRate, parseRatePercent } from "@/lib/format";
 import { NUSD } from "@/lib/mock/tokens";
 import { PanelHeading } from "./PanelHeading";
@@ -18,6 +18,7 @@ export function LendPanel() {
   const [ratePercent, setRatePercent] = useState("5");
   const bids = useMyBids();
   const placeBid = usePlaceBid();
+  const withdrawBid = useWithdrawBid();
 
   const handleSubmit = () => {
     placeBid.mutate({
@@ -90,6 +91,19 @@ export function LendPanel() {
                   idLabel={bid.bidId}
                   status={bid.status}
                   statusTone={bid.status === "MATCHED" ? "success" : "accent"}
+                  trailing={
+                    bid.status === "OPEN" ? (
+                      <Button
+                        variant="secondary"
+                        onClick={() => withdrawBid.mutate(bid)}
+                        disabled={withdrawBid.isPending}
+                        className="px-4 py-2 text-xs"
+                        title="Reclaim funds — allowed only after the bid deadline"
+                      >
+                        Withdraw
+                      </Button>
+                    ) : null
+                  }
                 />
               </li>
             ))}

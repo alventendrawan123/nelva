@@ -8,10 +8,14 @@ import { api } from "@/lib/api/endpoints";
 import {
   acceptAsWallet,
   borrowAsWallet,
+  cancelBorrowAsWallet,
+  claimExcessAsWallet,
   placeBidAsWallet,
   rejectAsWallet,
   repayAsWallet,
+  withdrawBidAsWallet,
 } from "@/lib/wallet/commands";
+import type { Bid, BorrowIntent, Loan } from "@/lib/api/schemas";
 
 const keys = {
   status: ["status"] as const,
@@ -242,6 +246,45 @@ export function useReject() {
         ? rejectAsWallet(proposalId)
         : api.reject(party ?? "", proposalId).then(() => undefined),
     ...useMarketCallbacks("Proposal rejected."),
+  });
+}
+
+// A wallet signs on its own contract id (bid.cid / borrow.cid); the demo persona path uses the
+// app-assigned id the BE resolves back to a contract id.
+export function useWithdrawBid() {
+  const { party } = useParty();
+  const { partyId } = useWallet();
+  return useMutation({
+    mutationFn: (bid: Bid): Promise<void> =>
+      partyId
+        ? withdrawBidAsWallet(bid.cid ?? "")
+        : api.withdrawBid(party ?? "", bid.bidId).then(() => undefined),
+    ...useMarketCallbacks("Bid withdrawn - funds returned."),
+  });
+}
+
+export function useCancelBorrow() {
+  const { party } = useParty();
+  const { partyId } = useWallet();
+  return useMutation({
+    mutationFn: (borrow: BorrowIntent): Promise<void> =>
+      partyId
+        ? cancelBorrowAsWallet(borrow.cid ?? "")
+        : api.cancelBorrow(party ?? "", borrow.borrowId).then(() => undefined),
+    ...useMarketCallbacks("Borrow cancelled - collateral returned."),
+  });
+}
+
+export function useClaimExcess() {
+  const { party } = useParty();
+  const { partyId } = useWallet();
+  return useMutation({
+    // loanId IS the contract id, so both paths take loan.loanId.
+    mutationFn: (loan: Loan): Promise<void> =>
+      partyId
+        ? claimExcessAsWallet(loan.loanId)
+        : api.claimExcess(party ?? "", loan.loanId).then(() => undefined),
+    ...useMarketCallbacks("Excess collateral claimed."),
   });
 }
 

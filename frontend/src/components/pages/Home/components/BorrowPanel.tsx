@@ -11,8 +11,11 @@ import { TokenChip } from "@/components/ui/TokenChip";
 import {
   useAccept,
   useBorrow,
+  useCancelBorrow,
+  useClaimExcess,
   useCollateralQuote,
   useLoans,
+  useMyBorrows,
   useProposals,
   useReject,
   useRepay,
@@ -29,11 +32,23 @@ export function BorrowPanel() {
 
   const borrow = useBorrow();
   const quote = useCollateralQuote(Number(amount));
+  const myBorrows = useMyBorrows();
   const proposals = useProposals();
   const loans = useLoans();
   const accept = useAccept();
   const reject = useReject();
   const repay = useRepay();
+  const cancelBorrow = useCancelBorrow();
+  const claimExcess = useClaimExcess();
+
+  const TIER_X: Record<string, number> = {
+    Bronze: 2.0,
+    Silver: 1.8,
+    Gold: 1.5,
+    Platinum: 1.2,
+  };
+
+  const openBorrows = myBorrows.data?.filter((b) => b.status === "OPEN");
 
   const handleSubmit = () => {
     borrow.mutate({
@@ -117,6 +132,39 @@ export function BorrowPanel() {
         </Button>
       </Card>
 
+      {openBorrows && openBorrows.length > 0 ? (
+        <section className="mt-8">
+          <h2 className="mb-3 text-lg font-bold text-foreground">
+            Your borrow intents
+          </h2>
+          <ul className="space-y-3">
+            {openBorrows.map((b) => (
+              <li key={b.borrowId}>
+                <TxRow
+                  symbol="nUSD"
+                  title={`${formatAmount(b.amount)} at max ${formatRate(b.maxRate)}`}
+                  subtitle={`Collateral ${formatAmount(b.collateralAmount)} - ${b.tier}`}
+                  idLabel={b.borrowId}
+                  status={b.status}
+                  statusTone="accent"
+                  trailing={
+                    <Button
+                      variant="secondary"
+                      onClick={() => cancelBorrow.mutate(b)}
+                      disabled={cancelBorrow.isPending}
+                      className="px-4 py-2 text-xs"
+                      title="Cancel this unmatched intent and reclaim collateral"
+                    >
+                      Cancel
+                    </Button>
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <section className="mt-8">
         <h2 className="mb-3 text-lg font-bold text-foreground">
           Match proposals
@@ -189,14 +237,29 @@ export function BorrowPanel() {
                   statusTone={loan.status === "ACTIVE" ? "accent" : "success"}
                   trailing={
                     loan.status === "ACTIVE" ? (
-                      <Button
-                        variant="secondary"
-                        onClick={() => repay.mutate(loan.loanId)}
-                        disabled={repay.isPending}
-                        className="px-4 py-2 text-xs"
-                      >
-                        Repay
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {loan.collateralAmount -
+                          loan.principal * (TIER_X[loan.tier] ?? 2) >
+                        0.01 ? (
+                          <Button
+                            variant="ghost"
+                            onClick={() => claimExcess.mutate(loan)}
+                            disabled={claimExcess.isPending}
+                            className="px-3 py-2 text-xs"
+                            title="Reclaim collateral above the required amount"
+                          >
+                            Claim excess
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="secondary"
+                          onClick={() => repay.mutate(loan.loanId)}
+                          disabled={repay.isPending}
+                          className="px-4 py-2 text-xs"
+                        >
+                          Repay
+                        </Button>
+                      </div>
                     ) : null
                   }
                 />

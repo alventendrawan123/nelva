@@ -79,11 +79,17 @@ export const api = {
     }),
   reject: (party: string, proposalId: string) =>
     call(`/proposals/${proposalId}/reject`, { party, method: "POST" }),
+  withdrawBid: (party: string, bidId: string) =>
+    call(`/bids/${bidId}`, { party, method: "DELETE" }),
+  cancelBorrow: (party: string, borrowId: string) =>
+    call(`/borrow/${borrowId}`, { party, method: "DELETE" }),
 
   loans: (party: string) =>
     call<Loan[]>("/loans", { party, schema: loanSchema.array() }),
   repay: (party: string, loanId: string) =>
     call(`/loans/${loanId}/repay`, { party, method: "POST" }),
+  claimExcess: (party: string, loanId: string) =>
+    call(`/loans/${loanId}/claim-excess`, { party, method: "POST" }),
 
   runMatch: () =>
     call<{ proposals: MatchProposal[] }>("/admin/run-match", {

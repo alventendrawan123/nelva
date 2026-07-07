@@ -131,6 +131,7 @@ app.get("/api/wallet/accept-info", h(async (req, res) => {
   res.json(await ledger.walletAcceptInfo(String(req.query.proposalId ?? "")));
 }));
 app.get("/api/wallet/repay-info", h(async (req, res) => res.json(await ledger.walletRepayInfo(String(req.query.party ?? ""), String(req.query.loanId ?? "")))));
+app.get("/api/wallet/claim-excess-info", h(async (req, res) => res.json(await ledger.walletClaimExcessInfo(String(req.query.party ?? ""), String(req.query.loanId ?? "")))));
 app.post("/api/faucet", h(async (req, res) => {
   // fund the CALLER only (never a body-supplied party) so it can't be used to mint to
   // arbitrary/unbounded party names.

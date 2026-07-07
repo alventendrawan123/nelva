@@ -4,6 +4,7 @@ export const tierSchema = z.enum(["Bronze", "Silver", "Gold", "Platinum"]);
 
 export const bidSchema = z.object({
   bidId: z.string(),
+  cid: z.string().optional(),
   lender: z.string(),
   amount: z.number(),
   rate: z.number(),
@@ -14,6 +15,7 @@ export const bidSchema = z.object({
 
 export const borrowIntentSchema = z.object({
   borrowId: z.string(),
+  cid: z.string().optional(),
   borrower: z.string(),
   amount: z.number(),
   maxRate: z.number(),
