@@ -66,14 +66,26 @@ async function submit(command) {
   return r.transactionTree;
 }
 
-async function activeProposals() {
+// One per-template ACS read. Must filter by PACKAGE NAME (#nelva-sc, not a package id) AND stay
+// per-template: the shared DevNet's operator ACS has >200 contracts, and the JSON API caps a
+// single response at that node limit — an unfiltered read 413s (MAXIMUM_LIST_ELEMENTS).
+async function acs(tmpl) {
   const end = (await api("/v2/state/ledger-end")).offset;
-  const arr = await api("/v2/state/active-contracts",
-    { activeAtOffset: end, eventFormat: { filtersByParty: { [OPERATOR]: {} }, verbose: true } });
-  const rows = arr.map((e) => e?.contractEntry?.JsActiveContract?.createdEvent).filter(Boolean);
-  const live = new Set(rows.map((c) => c.contractId));
-  // this package's proposals only (an SC upgrade leaves the old package's proposals on-ledger too)
-  const props = rows.filter((c) => String(c.templateId) === tid("Settlement:MatchProposal"));
+  const arr = await api("/v2/state/active-contracts", {
+    activeAtOffset: end,
+    eventFormat: { filtersByParty: { [OPERATOR]: { cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId: `#nelva-sc:Nelva.${tmpl}`, includeCreatedEventBlob: false } } } }] } }, verbose: true },
+  });
+  return arr.map((e) => e?.contractEntry?.JsActiveContract?.createdEvent).filter(Boolean);
+}
+
+async function activeProposals() {
+  const [props0, borrows, bids] = await Promise.all([
+    acs("Settlement:MatchProposal"),
+    acs("Lending:BorrowIntent"),
+    acs("Lending:SealedBid"),
+  ]);
+  const live = new Set([...borrows, ...bids].map((c) => c.contractId)); // to check each proposal's refs are still live
+  const props = props0.filter((c) => String(c.templateId) === tid("Settlement:MatchProposal")); // this package only
   return props.map((p) => {
     const a = p.createArgument;
     const refsLive = live.has(a.borrowCid) && (a.inputBidCids ?? []).every((c) => live.has(c));
