@@ -26,9 +26,17 @@ const tid = (s) => `${PKG}:Nelva.${s}`;
 let _tok, _uid, _seq = 0;
 const nid = (p) => `${p}-${Date.now().toString(36)}-${++_seq}`;
 
+// the shared DevNet endpoints occasionally connect-timeout; retry transient network failures.
+async function rfetch(url, opt, tries = 5) {
+  for (let i = 0; i < tries; i++) {
+    try { return await fetch(url, opt); }
+    catch (e) { if (i === tries - 1) throw e; await new Promise((r) => setTimeout(r, 2000)); }
+  }
+}
+
 async function token() {
   if (_tok) return _tok;
-  const r = await fetch(process.env.AUTH_TOKEN_URL, {
+  const r = await rfetch(process.env.AUTH_TOKEN_URL, {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "client_credentials", client_id: process.env.AUTH_CLIENT_ID,
@@ -45,7 +53,7 @@ async function api(path, body) {
   const t = await token();
   const opt = { headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } };
   if (body !== undefined) { opt.method = "POST"; opt.body = JSON.stringify(body); }
-  const r = await fetch(LEDGER + path, opt);
+  const r = await rfetch(LEDGER + path, opt);
   const txt = await r.text();
   if (!r.ok) { const e = new Error(`${path} -> ${r.status} ${txt.slice(0, 200)}`); e.status = r.status; throw e; }
   return txt ? JSON.parse(txt) : {};
