@@ -31,6 +31,10 @@ const DEADLINE = "2030-01-01T00:00:00Z"; // default far-future maturity for loan
 const deadlineFrom = (days: number) => new Date(Date.now() + days * 86400000).toISOString();
 
 const tid = (s: string) => `${PKG}:Nelva.${s}`;
+// Template filters in the v2 ACS query must use the PACKAGE NAME (#name), not a package id
+// ("expected a package name"). The package-name form resolves across upgrade versions, so the
+// JS-side `=== tid(...)` check still narrows to the current package's contracts.
+const tfilter = (s: string) => `#nelva-sc:Nelva.${s}`;
 // Display/compare name = hint with the party prefix stripped, so "nelva-Borrower::ns" reads
 // back as "Borrower" and matches a bare viewer name from dev-auth.
 const nameOf = (pid: string) => {
@@ -212,17 +216,18 @@ export class CantonLedger implements Ledger {
   }
   private async acsAs(party: string, tmpl: string): Promise<CW[]> {
     const end = (await get("/v2/state/ledger-end")).offset;
+    // Filter to THIS package's template AT THE LEDGER (not in JS). The shared DevNet accumulates
+    // so many contracts across teams + package versions that an unfiltered per-party ACS query
+    // blows the JSON API's max-list-elements limit; a TemplateFilter keyed on the current package
+    // id returns only this template's (this-package) contracts, which also excludes a previous
+    // package's stale contracts after an upgrade (their templateId carries the old package id).
     const arr: any[] = await post("/v2/state/active-contracts", {
       activeAtOffset: end,
-      eventFormat: { filtersByParty: { [party]: {} }, verbose: true },
+      eventFormat: { filtersByParty: { [party]: { cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId: tfilter(tmpl), includeCreatedEventBlob: false } } } }] } }, verbose: true },
     });
     const out: CW[] = [];
     for (const e of arr) {
       const ce = e?.contractEntry?.JsActiveContract?.createdEvent;
-      // Match THIS package's templates only. After an SC upgrade (e.g. 0.1.0 -> 0.2.0) two
-      // packages define the same "Nelva.Settlement:MatchProposal" module path; without the
-      // package-id prefix the adapter would also pick up the previous package's stale contracts
-      // (and then fail to exercise them under the new package id).
       if (ce && String(ce.templateId) === tid(tmpl)) out.push({ cid: ce.contractId, arg: ce.createArgument });
     }
     return out;
@@ -694,11 +699,16 @@ export class CantonLedger implements Ledger {
   }
 
   // ACS (operator view) WITH createdEventBlob — needed to build disclosed contracts.
-  private async acsWithBlobs(party: string): Promise<Map<string, { templateId: string; arg: any; blob: string }>> {
+  // Fetch created-event blobs for disclosure. Filter to the specific templates the caller needs
+  // (with includeCreatedEventBlob) rather than a wildcard: a wildcard over the operator's whole
+  // ACS on the shared DevNet exceeds the JSON API's max-list-elements limit. Keyed on the current
+  // package id, so only this-package contracts of those templates come back.
+  private async acsWithBlobs(party: string, tmpls: string[]): Promise<Map<string, { templateId: string; arg: any; blob: string }>> {
     const end = (await get("/v2/state/ledger-end")).offset;
+    const cumulative = tmpls.map((t) => ({ identifierFilter: { TemplateFilter: { value: { templateId: tfilter(t), includeCreatedEventBlob: true } } } }));
     const arr: any[] = await post("/v2/state/active-contracts", {
       activeAtOffset: end,
-      eventFormat: { filtersByParty: { [party]: { cumulative: [{ identifierFilter: { WildcardFilter: { value: { includeCreatedEventBlob: true } } } }] } }, verbose: true },
+      eventFormat: { filtersByParty: { [party]: { cumulative } }, verbose: true },
     });
     const m = new Map<string, { templateId: string; arg: any; blob: string }>();
     for (const e of arr) {
@@ -712,7 +722,7 @@ export class CantonLedger implements Ledger {
   async walletAcceptInfo(proposalCid: string) {
     const sync = await this.synchronizerId();
     const op = await this.ensureParty("Operator");
-    const blobs = await this.acsWithBlobs(op);
+    const blobs = await this.acsWithBlobs(op, ["Settlement:MatchProposal", "Lending:SealedBid", "Asset:Holding"]);
     const prop = blobs.get(proposalCid);
     if (!prop) throw new Error("proposal not found");
     const cids = new Set<string>();
@@ -746,7 +756,7 @@ export class CantonLedger implements Ledger {
     // stakeholder), so the wallet borrower can't see them — fetch by loanKey and disclose them.
     const positions = (await this.acsAs(op, "Settlement:LoanPosition")).filter((x) => x.arg.loanKey === loan.arg.loanKey);
     const positionCids = positions.map((x) => x.cid);
-    const blobs = await this.acsWithBlobs(op);
+    const blobs = await this.acsWithBlobs(op, ["Credit:CreditScore", "Asset:Holding", "Settlement:LoanPosition"]);
     // the borrower can't see the CreditScore until it lands in its ACS, never sees the collateral
     // escrow (DrawLocked to the operator at Accept), and never sees the per-lender LoanPositions —
     // all must be disclosed for the wallet's prepare.
@@ -849,7 +859,7 @@ export class CantonLedger implements Ledger {
     const excess = Number(loan.arg.collateralAmount) - Number(loan.arg.requiredCollateral);
     if (!(excess > 0)) throw new Error("no excess collateral to claim");
     const price = await this.latestPrice(loan.arg.instrument ?? "USD");
-    const blobs = await this.acsWithBlobs(op);
+    const blobs = await this.acsWithBlobs(op, ["Settlement:PriceUpdate", "Asset:Holding"]);
     const disclosed = [price.cid, loan.arg.collateralCid]
       .map((cid) => {
         const c = blobs.get(cid);
