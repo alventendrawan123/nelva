@@ -194,9 +194,26 @@ export const txDetailsSchema = z.object({
   events: z.array(txEventSchema),
 });
 
+// Nelva Explorer: a party's on-ledger transaction history (address page)
+export const addressTxsSchema = z.object({
+  party: z.string(),
+  count: z.number(),
+  txs: z.array(
+    z.object({
+      updateId: z.string(),
+      offset: z.number(),
+      effectiveAt: z.string(),
+      events: z.array(
+        z.object({ kind: z.string(), template: z.string().optional() }),
+      ),
+    }),
+  ),
+});
+
 export type Tier = z.infer<typeof tierSchema>;
 export type TxDetails = z.infer<typeof txDetailsSchema>;
 export type TxEvent = z.infer<typeof txEventSchema>;
+export type AddressTxs = z.infer<typeof addressTxsSchema>;
 export type Bid = z.infer<typeof bidSchema>;
 export type BorrowIntent = z.infer<typeof borrowIntentSchema>;
 export type Tick = z.infer<typeof tickSchema>;

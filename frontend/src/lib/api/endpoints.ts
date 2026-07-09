@@ -22,6 +22,8 @@ import {
   type Me,
   matchProposalSchema,
   meSchema,
+  type AddressTxs,
+  addressTxsSchema,
   type Status,
   statusSchema,
   type TxDetails,
@@ -100,6 +102,11 @@ export const api = {
   txDetails: (updateId: string) =>
     call<TxDetails>(`/tx/${encodeURIComponent(updateId)}`, {
       schema: txDetailsSchema,
+    }),
+  // Nelva Explorer: a party's full on-ledger transaction history
+  addressTxs: (party: string) =>
+    call<AddressTxs>(`/address-txs?party=${encodeURIComponent(party)}`, {
+      schema: addressTxsSchema,
     }),
 
   runMatch: () =>

@@ -137,6 +137,8 @@ app.get("/api/wallet/claim-excess-info", h(async (req, res) => res.json(await le
 app.get("/api/tx-by-offset", h(async (req, res) => res.json(await ledger.txByOffset(Number(req.query.offset)))));
 // Nelva Explorer: live transaction details by update id (stakeholder-view — Canton has no public explorer for app tx)
 app.get("/api/tx/:updateId", h(async (req, res) => res.json(await ledger.txDetails(String(req.params.updateId)))));
+// Nelva Explorer: a party's full on-ledger transaction history (address page)
+app.get("/api/address-txs", h(async (req, res) => res.json(await ledger.addressTxs(String(req.query.party ?? "")))));
 app.post("/api/faucet", h(async (req, res) => {
   // fund the CALLER only (never a body-supplied party) so it can't be used to mint to
   // arbitrary/unbounded party names.

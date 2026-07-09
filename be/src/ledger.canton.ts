@@ -558,6 +558,33 @@ export class CantonLedger implements Ledger {
     await this.create([oracle], "Settlement:PriceUpdate", { oracle, operator: op, instrument, price: String(price), asOf: new Date().toISOString() });
     return { instrument, price };
   }
+  // Nelva Explorer: a party's full transaction history, read live from the ledger. filtersByParty
+  // scopes the stream to transactions that party is a stakeholder in — exactly the address-page
+  // semantics of a public explorer, but served by a node entitled to see them.
+  async addressTxs(party: string) {
+    if (!party.includes("::")) { const e: any = new Error("valid party id required"); e.status = 400; throw e; }
+    const end = Number((await get("/v2/state/ledger-end")).offset);
+    const rows: any[] = await post("/v2/updates/flats", {
+      beginExclusive: 0, endInclusive: end, verbose: false,
+      updateFormat: { includeTransactions: { eventFormat: { filtersByParty: { [party]: { cumulative: [{ identifierFilter: { WildcardFilter: { value: { includeCreatedEventBlob: false } } } }] } }, verbose: false }, transactionShape: "TRANSACTION_SHAPE_ACS_DELTA" } },
+      limit: 1000, streamIdleTimeoutMs: 4000,
+    });
+    const shortTmpl = (tid: string) => String(tid).split(":").slice(1).join(":");
+    const txs = rows
+      .map((x) => x?.update?.Transaction?.value)
+      .filter(Boolean)
+      .map((v: any) => ({
+        updateId: v.updateId, offset: Number(v.offset), effectiveAt: v.effectiveAt,
+        events: (v.events ?? []).map((ev: any) => {
+          const c = ev.CreatedEvent, a = ev.ArchivedEvent;
+          if (c) return { kind: "created", template: shortTmpl(c.templateId) };
+          if (a) return { kind: "archived", template: shortTmpl(a.templateId) };
+          return { kind: "other" };
+        }),
+      }))
+      .reverse(); // newest first
+    return { party, count: txs.length, txs: txs.slice(0, 200) };
+  }
   // Nelva Explorer: full details of one committed transaction, read live from the ledger as the
   // operator (a stakeholder on every app contract). Canton has no public Etherscan — explorers
   // like Cantonscan only see Canton-Coin/DSO activity, never a private app's transactions — so

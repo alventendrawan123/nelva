@@ -59,6 +59,14 @@ export function ProfileHeader() {
             </button>
             <button
               type="button"
+              onClick={() =>
+                window.open(
+                  `/address/${encodeURIComponent(profile.address)}`,
+                  "_blank",
+                  "noopener",
+                )
+              }
+              title="View this address's on-ledger transactions"
               className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
             >
               <ExternalLink className="h-4 w-4" />
