@@ -4,10 +4,15 @@
 // stakeholder in, read live from the Canton ledger. The Etherscan address-page
 // equivalent, served by a node entitled to see these transactions (Canton's
 // privacy keeps them off public explorers by design).
+//
+// Static route + ?party= query (not a dynamic segment): the /address/[party]
+// serverless function 500'd on Vercel while the same build ran clean locally,
+// so this page uses the same static-shell pattern as /explore instead.
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Check, Copy } from "lucide-react";
 import Link from "next/link";
-import { use, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { api } from "@/lib/api/endpoints";
@@ -42,16 +47,12 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-export default function AddressPage({
-  params,
-}: {
-  params: Promise<{ party: string }>;
-}) {
-  const { party: raw } = use(params);
-  const party = decodeURIComponent(raw);
+function AddressView() {
+  const party = useSearchParams().get("party") ?? "";
   const history = useQuery({
     queryKey: ["address-txs", party],
     queryFn: () => api.addressTxs(party),
+    enabled: Boolean(party),
     retry: 2,
   });
 
@@ -75,8 +76,8 @@ export default function AddressPage({
           Party ID
         </p>
         <div className="flex items-center gap-1">
-          <p className={`${mono} text-foreground`}>{party}</p>
-          <CopyButton value={party} />
+          <p className={`${mono} text-foreground`}>{party || "—"}</p>
+          {party ? <CopyButton value={party} /> : null}
         </div>
         {history.data ? (
           <p className="text-sm text-muted">
@@ -88,7 +89,7 @@ export default function AddressPage({
         ) : null}
       </Card>
 
-      {history.isLoading ? (
+      {history.isLoading && party ? (
         <p className="mt-6 text-sm text-muted">Reading the ledger…</p>
       ) : null}
       {history.isError ? (
@@ -142,5 +143,13 @@ export default function AddressPage({
         </section>
       ) : null}
     </main>
+  );
+}
+
+export default function AddressPage() {
+  return (
+    <Suspense fallback={null}>
+      <AddressView />
+    </Suspense>
   );
 }

@@ -61,7 +61,7 @@ export function ProfileHeader() {
               type="button"
               onClick={() =>
                 window.open(
-                  `/address/${encodeURIComponent(profile.address)}`,
+                  `/address?party=${encodeURIComponent(profile.address)}`,
                   "_blank",
                   "noopener",
                 )
