@@ -147,6 +147,16 @@ export async function borrowAsWallet(
   const holdingTid = `${packageId}:Nelva.Asset:Holding`;
   const borrowTid = `${packageId}:Nelva.Lending:BorrowIntent`;
 
+  // The BorrowIntent's tier MUST equal the borrower's real CreditScore tier: the ledger's
+  // `ensure` sizes collateral by multiplier(tier), and RunMatch drops a borrow whose tier != its
+  // score. Hardcoding "Bronze" broke as soon as a borrower ranked up (e.g. Silver needs 1.8x, but
+  // a Bronze intent demands 2x -> "ledger rejected"). Read the real tier from the BE.
+  const quote = await fetch(
+    `${API_BASE_URL}/collateral-quote?party=${encodeURIComponent(party)}&amount=${amount}&instrument=USD`,
+    { headers: { Authorization: `Bearer ${party}` } },
+  ).then((r) => r.json());
+  const tier = quote?.tier ?? "Bronze";
+
   const holdings = await walletHoldings();
   const source = holdings.find(
     (h) => !h.locked && h.amount >= collateralAmount,
@@ -206,7 +216,7 @@ export async function borrowAsWallet(
           collateralAmount: String(collateralAmount),
           amount: String(amount),
           maxRate: String(maxRate),
-          tier: "Bronze",
+          tier,
           instrument: "USD",
           deadline: DEADLINE,
         },
