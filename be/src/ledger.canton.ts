@@ -541,8 +541,9 @@ export class CantonLedger implements Ledger {
     if (!loan) throw new Error("loan not found");
     const inst = loan.arg.instrument ?? "USD";
     // use the NEWEST PriceUpdate (setPrice appends, never archives); .find() picked the
-    // oldest and mis-decided liquidations. latestPrice reduces by asOf.
-    const price = await this.latestPrice(inst);
+    // oldest and mis-decided liquidations. freshPrice re-stamps if the newest is >20h old, so
+    // Liquidate's `pu.asOf > now - 24h` assert never rejects on a stale demo price.
+    const price = await this.freshPrice(inst);
     const cs = await this.ensureCreditScore(loan.arg.borrower);
     const positions = (await this.acsAs(op, "Settlement:LoanPosition")).filter((x) => x.arg.loanKey === loan.arg.loanKey);
     await this.exercise([op], "Settlement:Loan", loanId, "Liquidate", { priceCid: price.cid, creditScoreCid: cs, positionCids: positions.map((x) => x.cid) });
@@ -862,7 +863,7 @@ export class CantonLedger implements Ledger {
     if (!loan) throw new Error("loan not found");
     const excess = Number(loan.arg.collateralAmount) - Number(loan.arg.requiredCollateral);
     if (!(excess > 0)) throw new Error("no excess collateral to claim");
-    const price = await this.latestPrice(loan.arg.instrument ?? "USD");
+    const price = await this.freshPrice(loan.arg.instrument ?? "USD");
     const blobs = await this.acsWithBlobs(op, ["Settlement:PriceUpdate", "Asset:Holding"]);
     const disclosed = [price.cid, loan.arg.collateralCid]
       .map((cid) => {
@@ -880,6 +881,20 @@ export class CantonLedger implements Ledger {
     if (!all.length) throw new Error(`no price for ${instrument}; POST /api/admin/price first`);
     const latest = all.reduce((a, b) => (String(a.arg.asOf) >= String(b.arg.asOf) ? a : b));
     return { cid: latest.cid, price: Number(latest.arg.price) };
+  }
+  // A price the freshness-checking choices will accept. Swap/ClaimExcess/Liquidate each assert
+  // `pu.asOf > now - 24h`, but PriceUpdates go stale — nobody re-posts them between demo sessions
+  // on the shared DevNet, so a day-old price made those choices fail with an opaque "ledger
+  // rejected the request". If the newest price for `instrument` is older than 20h (or missing),
+  // re-stamp it at the last known value (default 1.0) as the Oracle, then return the fresh cid.
+  private async freshPrice(instrument: string): Promise<{ cid: string; price: number }> {
+    const op = await this.ensureParty("Operator");
+    const all = (await this.acsAs(op, "Settlement:PriceUpdate")).filter((x) => x.arg.instrument === instrument);
+    const latest = all.length ? all.reduce((a, b) => (String(a.arg.asOf) >= String(b.arg.asOf) ? a : b)) : null;
+    const ageMs = latest ? Date.now() - Date.parse(String(latest.arg.asOf)) : Infinity;
+    if (latest && ageMs < 20 * 3600 * 1000) return { cid: latest.cid, price: Number(latest.arg.price) };
+    await this.setPrice(instrument, latest ? Number(latest.arg.price) : 1.0);
+    return this.latestPrice(instrument);
   }
   async swapQuote(p: { instrumentIn: string; instrumentOut: string; amountIn: number }) {
     const [pin, pout] = await Promise.all([this.latestPrice(p.instrumentIn), this.latestPrice(p.instrumentOut)]);
@@ -912,7 +927,7 @@ export class CantonLedger implements Ledger {
       const pieces = this.allMade(splitTree, "Asset:Holding");
       inCid = (pieces.find((x) => Number(x.arg.amount) === p.amountIn) ?? pieces[0]).cid;
     }
-    const [pin, pout] = await Promise.all([this.latestPrice(p.instrumentIn), this.latestPrice(p.instrumentOut)]);
+    const [pin, pout] = await Promise.all([this.freshPrice(p.instrumentIn), this.freshPrice(p.instrumentOut)]);
     const amountOut = (p.amountIn * pin.price) / pout.price;
     const minOut = p.minAmountOut ?? 0;
     const pool = await this.ensureSwapPool();
