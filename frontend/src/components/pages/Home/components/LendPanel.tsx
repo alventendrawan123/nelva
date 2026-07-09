@@ -89,6 +89,7 @@ export function LendPanel() {
                   title={`${formatAmount(bid.amount)} at ${formatRate(bid.rate)}`}
                   subtitle={`Sealed bid - ${bid.lender}`}
                   idLabel={bid.bidId}
+                  txOffset={bid.txOffset}
                   status={bid.status}
                   statusTone={bid.status === "MATCHED" ? "success" : "accent"}
                   trailing={

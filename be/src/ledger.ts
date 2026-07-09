@@ -43,6 +43,7 @@ export interface Ledger {
   walletAcceptInfo(proposalCid: string): Promise<any>;
   walletRepayInfo(party: string, loanId: string): Promise<any>;
   walletClaimExcessInfo(party: string, loanId: string): Promise<any>;
+  txByOffset(offset: number): Promise<{ updateId: string }>;
   walletFaucet(party: string): Promise<any>;
 
   // ── extended additions ──

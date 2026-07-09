@@ -118,7 +118,7 @@ async function get(path: string): Promise<any> {
   return r.json();
 }
 
-type CW = { cid: string; arg: any }; // contract wrapper
+type CW = { cid: string; arg: any; offset?: number }; // contract wrapper (+ creating tx's ledger offset from ACS reads)
 
 export class CantonLedger implements Ledger {
   private parties = new Map<string, string>();
@@ -251,7 +251,7 @@ export class CantonLedger implements Ledger {
     const out: CW[] = [];
     for (const e of arr) {
       const ce = e?.contractEntry?.JsActiveContract?.createdEvent;
-      if (ce && isTmpl(String(ce.templateId), tmpl)) out.push({ cid: ce.contractId, arg: ce.createArgument });
+      if (ce && isTmpl(String(ce.templateId), tmpl)) out.push({ cid: ce.contractId, arg: ce.createArgument, offset: Number(ce.offset) });
     }
     return out;
   }
@@ -259,12 +259,12 @@ export class CantonLedger implements Ledger {
   // ── mappers ──
   private bidDto(x: CW): Bid {
     const a = x.arg;
-    return { bidId: a.bidId, cid: x.cid, lender: nameOf(a.lender), amount: Number(a.amount), rate: Number(a.bidRate), instrument: a.instrument, status: "OPEN", deadline: a.deadline };
+    return { bidId: a.bidId, cid: x.cid, txOffset: x.offset, lender: nameOf(a.lender), amount: Number(a.amount), rate: Number(a.bidRate), instrument: a.instrument, status: "OPEN", deadline: a.deadline };
   }
   private borrowDto(x: CW): BorrowIntent {
     const a = x.arg, tier = a.tier as Tier;
     const collateralAmount = Number(a.collateralAmount ?? 0);
-    return { borrowId: a.borrowId, cid: x.cid, borrower: nameOf(a.borrower), amount: Number(a.amount), maxRate: Number(a.maxRate), tier, requiredCollateral: Number(a.amount) * TIER_MULTIPLIER[tier], collateralAmount, instrument: a.instrument, status: "OPEN" };
+    return { borrowId: a.borrowId, cid: x.cid, txOffset: x.offset, borrower: nameOf(a.borrower), amount: Number(a.amount), maxRate: Number(a.maxRate), tier, requiredCollateral: Number(a.amount) * TIER_MULTIPLIER[tier], collateralAmount, instrument: a.instrument, status: "OPEN" };
   }
   private ticksDto(ts: any[]) { return (ts ?? []).map((t) => ({ lender: nameOf(t.lender), bidId: t.bidId, amount: Number(t.amount), rate: Number(t.rate) })); }
   private propDto(x: CW): MatchProposal {
@@ -273,7 +273,7 @@ export class CantonLedger implements Ledger {
   }
   private loanDto(x: CW): Loan {
     const a = x.arg;
-    return { loanId: x.cid, borrower: nameOf(a.borrower), principal: Number(a.principal), blendedRate: Number(a.blendedRate), ticks: this.ticksDto(a.ticks), collateralAmount: Number(a.collateralAmount), requiredCollateral: Number(a.requiredCollateral), tier: a.tier as Tier, maturity: a.maturity, status: "ACTIVE" };
+    return { loanId: x.cid, txOffset: x.offset, borrower: nameOf(a.borrower), principal: Number(a.principal), blendedRate: Number(a.blendedRate), ticks: this.ticksDto(a.ticks), collateralAmount: Number(a.collateralAmount), requiredCollateral: Number(a.requiredCollateral), tier: a.tier as Tier, maturity: a.maturity, status: "ACTIVE" };
   }
   private badgeDto(x: CW): AuditBadge {
     const a = x.arg, ok = a.verdict === true || a.verdict === "true";
@@ -557,6 +557,24 @@ export class CantonLedger implements Ledger {
     const op = await this.ensureParty("Operator");
     await this.create([oracle], "Settlement:PriceUpdate", { oracle, operator: op, instrument, price: String(price), asOf: new Date().toISOString() });
     return { instrument, price };
+  }
+  // The Canton tx hash (update id) of the transaction that created a contract, looked up by the
+  // contract's ACS offset. Immutable once committed, so cache forever. Powers the per-row ↗
+  // "copy tx hash" button in the UI.
+  private _txByOffset = new Map<number, string>();
+  async txByOffset(offset: number): Promise<{ updateId: string }> {
+    if (!Number.isFinite(offset) || offset <= 0) { const e: any = new Error("valid offset required"); e.status = 400; throw e; }
+    const hit = this._txByOffset.get(offset);
+    if (hit) return { updateId: hit };
+    const op = await this.ensureParty("Operator");
+    const r = await post("/v2/updates/update-by-offset", {
+      offset,
+      updateFormat: { includeTransactions: { eventFormat: { filtersByParty: { [op]: { cumulative: [{ identifierFilter: { WildcardFilter: { value: { includeCreatedEventBlob: false } } } }] } }, verbose: false }, transactionShape: "TRANSACTION_SHAPE_ACS_DELTA" } },
+    });
+    const updateId = r?.update?.Transaction?.value?.updateId;
+    if (!updateId) { const e: any = new Error("no transaction at that offset"); e.status = 404; throw e; }
+    this._txByOffset.set(offset, String(updateId));
+    return { updateId: String(updateId) };
   }
   async liquidate(loanId: string): Promise<any> {
     const op = await this.ensureParty("Operator");

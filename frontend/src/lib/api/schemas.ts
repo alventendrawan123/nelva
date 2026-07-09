@@ -5,6 +5,7 @@ export const tierSchema = z.enum(["Bronze", "Silver", "Gold", "Platinum"]);
 export const bidSchema = z.object({
   bidId: z.string(),
   cid: z.string().optional(),
+  txOffset: z.number().optional(),
   lender: z.string(),
   amount: z.number(),
   rate: z.number(),
@@ -16,6 +17,7 @@ export const bidSchema = z.object({
 export const borrowIntentSchema = z.object({
   borrowId: z.string(),
   cid: z.string().optional(),
+  txOffset: z.number().optional(),
   borrower: z.string(),
   amount: z.number(),
   maxRate: z.number(),
@@ -55,6 +57,7 @@ export const loanSchema = z.object({
   // optional so a not-yet-redeployed backend (which doesn't emit it) still parses; the claim
   // button treats a missing value as "no excess" until the backend catches up.
   requiredCollateral: z.number().optional(),
+  txOffset: z.number().optional(),
   tier: tierSchema,
   maturity: z.string(),
   status: z.enum(["ACTIVE", "REPAID", "LIQUIDATED"]),

@@ -138,6 +138,7 @@ export function BorrowPanel() {
                   title={`${formatAmount(b.amount)} at max ${formatRate(b.maxRate)}`}
                   subtitle={`Collateral ${formatAmount(b.collateralAmount)} - ${b.tier}`}
                   idLabel={b.borrowId}
+                  txOffset={b.txOffset}
                   status={b.status}
                   statusTone="accent"
                   trailing={
@@ -226,6 +227,7 @@ export function BorrowPanel() {
                   title={`${formatAmount(loan.principal)} at ${formatRate(loan.blendedRate)}`}
                   subtitle={`Collateral ${formatAmount(loan.collateralAmount)}`}
                   idLabel={loan.loanId}
+                  txOffset={loan.txOffset}
                   status={loan.status}
                   statusTone={loan.status === "ACTIVE" ? "accent" : "success"}
                   trailing={

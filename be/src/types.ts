@@ -26,6 +26,7 @@ export const TIER_MULTIPLIER: Record<Tier, number> = {
 export interface Bid {
   bidId: string;
   cid?: string; // on-ledger contract id — needed for a wallet to WithdrawBid (own signature)
+  txOffset?: number; // ledger offset of the creating tx — resolves to its tx hash via /api/tx-by-offset
   lender: string;
   amount: number;
   rate: number; // lender's reservation rate, e.g. 0.05
@@ -37,6 +38,7 @@ export interface Bid {
 export interface BorrowIntent {
   borrowId: string;
   cid?: string; // on-ledger contract id — needed for a wallet to Cancel (own signature)
+  txOffset?: number; // ledger offset of the creating tx — resolves to its tx hash via /api/tx-by-offset
   borrower: string;
   amount: number;
   maxRate: number;
@@ -74,6 +76,7 @@ export interface Loan {
   ticks: Tick[];
   collateralAmount: number;
   requiredCollateral: number;
+  txOffset?: number; // ledger offset of the creating tx — resolves to its tx hash via /api/tx-by-offset
   tier: Tier;
   maturity: string;
   status: "ACTIVE" | "REPAID" | "LIQUIDATED";

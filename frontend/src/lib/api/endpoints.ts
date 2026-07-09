@@ -91,6 +91,10 @@ export const api = {
   claimExcess: (party: string, loanId: string) =>
     call(`/loans/${loanId}/claim-excess`, { party, method: "POST" }),
 
+  // tx hash (Canton update id) of the transaction that created a contract, by ACS offset
+  txByOffset: (offset: number) =>
+    call<{ updateId: string }>(`/tx-by-offset?offset=${offset}`, {}),
+
   runMatch: () =>
     call<{ proposals: MatchProposal[] }>("/admin/run-match", {
       party: OPERATOR,
