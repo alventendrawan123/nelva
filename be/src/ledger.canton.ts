@@ -250,7 +250,7 @@ export class CantonLedger implements Ledger {
   }
   private loanDto(x: CW): Loan {
     const a = x.arg;
-    return { loanId: x.cid, borrower: nameOf(a.borrower), principal: Number(a.principal), blendedRate: Number(a.blendedRate), ticks: this.ticksDto(a.ticks), collateralAmount: Number(a.collateralAmount), tier: a.tier as Tier, maturity: a.maturity, status: "ACTIVE" };
+    return { loanId: x.cid, borrower: nameOf(a.borrower), principal: Number(a.principal), blendedRate: Number(a.blendedRate), ticks: this.ticksDto(a.ticks), collateralAmount: Number(a.collateralAmount), requiredCollateral: Number(a.requiredCollateral), tier: a.tier as Tier, maturity: a.maturity, status: "ACTIVE" };
   }
   private badgeDto(x: CW): AuditBadge {
     const a = x.arg, ok = a.verdict === true || a.verdict === "true";

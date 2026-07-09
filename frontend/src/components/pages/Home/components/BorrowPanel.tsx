@@ -41,13 +41,6 @@ export function BorrowPanel() {
   const cancelBorrow = useCancelBorrow();
   const claimExcess = useClaimExcess();
 
-  const TIER_X: Record<string, number> = {
-    Bronze: 2.0,
-    Silver: 1.8,
-    Gold: 1.5,
-    Platinum: 1.2,
-  };
-
   const openBorrows = myBorrows.data?.filter((b) => b.status === "OPEN");
 
   const handleSubmit = () => {
@@ -238,8 +231,7 @@ export function BorrowPanel() {
                   trailing={
                     loan.status === "ACTIVE" ? (
                       <div className="flex items-center gap-2">
-                        {loan.collateralAmount -
-                          loan.principal * (TIER_X[loan.tier] ?? 2) >
+                        {loan.collateralAmount - loan.requiredCollateral >
                         0.01 ? (
                           <Button
                             variant="ghost"

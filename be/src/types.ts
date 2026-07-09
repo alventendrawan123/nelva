@@ -73,6 +73,7 @@ export interface Loan {
   blendedRate: number;
   ticks: Tick[];
   collateralAmount: number;
+  requiredCollateral: number;
   tier: Tier;
   maturity: string;
   status: "ACTIVE" | "REPAID" | "LIQUIDATED";

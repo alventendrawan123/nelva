@@ -168,6 +168,12 @@ function useInvalidateMarket() {
     queryClient.invalidateQueries({ queryKey: ["loans"] });
     queryClient.invalidateQueries({ queryKey: ["lens"] });
     queryClient.invalidateQueries({ queryKey: ["holdings"] });
+    // A repay bumps the borrower's tier, which changes the required collateral. Without these the
+    // borrow form kept quoting the OLD tier (e.g. "Gold 1.5x -> 150" after a repay already ranked
+    // the borrower up to Platinum 1.2x -> 120), so a borrower over-posted collateral by mistake.
+    queryClient.invalidateQueries({ queryKey: ["credit-score"] });
+    queryClient.invalidateQueries({ queryKey: ["collateral-quote"] });
+    queryClient.invalidateQueries({ queryKey: ["lender-status"] });
   };
 }
 

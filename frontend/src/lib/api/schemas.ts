@@ -52,6 +52,7 @@ export const loanSchema = z.object({
   blendedRate: z.number(),
   ticks: z.array(tickSchema),
   collateralAmount: z.number(),
+  requiredCollateral: z.number(),
   tier: tierSchema,
   maturity: z.string(),
   status: z.enum(["ACTIVE", "REPAID", "LIQUIDATED"]),
