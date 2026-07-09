@@ -97,8 +97,10 @@ export function TxHistory() {
                   <li key={`${e.txId}-${e.at}`}>
                     <button
                       type="button"
-                      onClick={() => handleCopy(e.txId)}
-                      title={`${e.txId} — click to copy`}
+                      onClick={() =>
+                        window.open(`/tx/${e.txId}`, "_blank", "noopener")
+                      }
+                      title={`${e.txId} — click to view in the explorer`}
                       className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-surface-2"
                     >
                       <div className="min-w-0 flex-1">
@@ -109,11 +111,29 @@ export function TxHistory() {
                           {shortHash(e.txId)} · {timeOf(e.at)}
                         </p>
                       </div>
-                      {copiedTx === e.txId ? (
-                        <Check className="h-4 w-4 shrink-0 text-success" />
-                      ) : (
-                        <Copy className="h-4 w-4 shrink-0 text-muted" />
-                      )}
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Copy tx hash"
+                        title="Copy tx hash"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          void handleCopy(e.txId);
+                        }}
+                        onKeyDown={(ev) => {
+                          if (ev.key === "Enter" || ev.key === " ") {
+                            ev.stopPropagation();
+                            void handleCopy(e.txId);
+                          }
+                        }}
+                        className="rounded p-0.5 text-muted transition-colors hover:text-foreground"
+                      >
+                        {copiedTx === e.txId ? (
+                          <Check className="h-4 w-4 shrink-0 text-success" />
+                        ) : (
+                          <Copy className="h-4 w-4 shrink-0 text-muted" />
+                        )}
+                      </span>
                     </button>
                   </li>
                 ))}

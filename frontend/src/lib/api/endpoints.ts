@@ -24,6 +24,8 @@ import {
   meSchema,
   type Status,
   statusSchema,
+  type TxDetails,
+  txDetailsSchema,
 } from "@/lib/api/schemas";
 
 const OPERATOR = "Operator";
@@ -94,6 +96,11 @@ export const api = {
   // tx hash (Canton update id) of the transaction that created a contract, by ACS offset
   txByOffset: (offset: number) =>
     call<{ updateId: string }>(`/tx-by-offset?offset=${offset}`, {}),
+  // Nelva Explorer: live transaction details straight from the Canton ledger
+  txDetails: (updateId: string) =>
+    call<TxDetails>(`/tx/${encodeURIComponent(updateId)}`, {
+      schema: txDetailsSchema,
+    }),
 
   runMatch: () =>
     call<{ proposals: MatchProposal[] }>("/admin/run-match", {

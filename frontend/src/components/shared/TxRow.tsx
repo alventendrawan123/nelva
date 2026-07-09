@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { FiCheck, FiExternalLink } from "react-icons/fi";
+import { FiExternalLink } from "react-icons/fi";
 import { Badge } from "@/components/ui/Badge";
 import { TokenIcon } from "@/components/ui/TokenIcon";
 import { useFeedback } from "@/context/FeedbackContext";
@@ -18,8 +18,8 @@ type TxRowProps = {
   status: string;
   statusTone?: BadgeTone;
   trailing?: ReactNode;
-  /** ledger offset of the tx that created this contract — makes the ↗ icon a
-   *  one-click "copy tx hash" button (resolved on demand from the ledger). */
+  /** ledger offset of the tx that created this contract — makes the ↗ icon open
+   *  that transaction in the Nelva Explorer (live ledger view). */
   txOffset?: number;
 };
 
@@ -33,19 +33,16 @@ export function TxRow({
   trailing,
   txOffset,
 }: TxRowProps) {
-  const { showSuccess, showError } = useFeedback();
-  const [copied, setCopied] = useState(false);
+  const { showError } = useFeedback();
   const [busy, setBusy] = useState(false);
 
-  const copyTxHash = async () => {
+  // resolve this row's creating tx and open it in the Nelva Explorer (live ledger view)
+  const openExplorer = async () => {
     if (!txOffset || busy) return;
     setBusy(true);
     try {
       const { updateId } = await api.txByOffset(txOffset);
-      await navigator.clipboard.writeText(updateId);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-      showSuccess(`Tx hash copied: ${updateId.slice(0, 20)}…`);
+      window.open(`/tx/${updateId}`, "_blank", "noopener");
     } catch (e) {
       showError(
         e instanceof Error ? e.message : "Could not fetch the tx hash.",
@@ -78,17 +75,13 @@ export function TxRow({
         {txOffset ? (
           <button
             type="button"
-            onClick={copyTxHash}
+            onClick={openExplorer}
             disabled={busy}
-            title="Copy this contract's on-ledger tx hash"
-            aria-label="Copy tx hash"
+            title="View this contract's on-ledger transaction"
+            aria-label="View on-ledger transaction"
             className="rounded p-0.5 text-muted transition-colors hover:text-foreground disabled:opacity-50"
           >
-            {copied ? (
-              <FiCheck className="h-4 w-4 text-success" />
-            ) : (
-              <FiExternalLink className="h-4 w-4" />
-            )}
+            <FiExternalLink className="h-4 w-4" />
           </button>
         ) : (
           <FiExternalLink className="h-4 w-4 text-muted" aria-hidden />

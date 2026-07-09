@@ -176,7 +176,27 @@ export const collateralQuoteSchema = z.object({
   requiredCollateral: z.number(),
 });
 
+// Nelva Explorer: one committed transaction, read live from the ledger
+export const txEventSchema = z.object({
+  kind: z.string(),
+  template: z.string().optional(),
+  packageName: z.string().optional(),
+  contractId: z.string().optional(),
+  argument: z.unknown().optional(),
+  signatories: z.array(z.string()).optional(),
+  observers: z.array(z.string()).optional(),
+});
+export const txDetailsSchema = z.object({
+  updateId: z.string(),
+  offset: z.number(),
+  effectiveAt: z.string(),
+  synchronizerId: z.string().optional(),
+  events: z.array(txEventSchema),
+});
+
 export type Tier = z.infer<typeof tierSchema>;
+export type TxDetails = z.infer<typeof txDetailsSchema>;
+export type TxEvent = z.infer<typeof txEventSchema>;
 export type Bid = z.infer<typeof bidSchema>;
 export type BorrowIntent = z.infer<typeof borrowIntentSchema>;
 export type Tick = z.infer<typeof tickSchema>;

@@ -558,6 +558,28 @@ export class CantonLedger implements Ledger {
     await this.create([oracle], "Settlement:PriceUpdate", { oracle, operator: op, instrument, price: String(price), asOf: new Date().toISOString() });
     return { instrument, price };
   }
+  // Nelva Explorer: full details of one committed transaction, read live from the ledger as the
+  // operator (a stakeholder on every app contract). Canton has no public Etherscan — explorers
+  // like Cantonscan only see Canton-Coin/DSO activity, never a private app's transactions — so
+  // the app itself serves the stakeholder-view explorer.
+  async txDetails(updateId: string) {
+    if (!/^[0-9a-f]{8,}$/i.test(updateId)) { const e: any = new Error("valid update id required"); e.status = 400; throw e; }
+    const op = await this.ensureParty("Operator");
+    const r = await post("/v2/updates/update-by-id", {
+      updateId,
+      updateFormat: { includeTransactions: { eventFormat: { filtersByParty: { [op]: { cumulative: [{ identifierFilter: { WildcardFilter: { value: { includeCreatedEventBlob: false } } } }] } }, verbose: false }, transactionShape: "TRANSACTION_SHAPE_ACS_DELTA" } },
+    });
+    const v = r?.update?.Transaction?.value;
+    if (!v) { const e: any = new Error("transaction not found (or not visible to this node)"); e.status = 404; throw e; }
+    const shortTmpl = (tid: string) => String(tid).split(":").slice(1).join(":");
+    const events = (v.events ?? []).map((ev: any) => {
+      const c = ev.CreatedEvent, a = ev.ArchivedEvent;
+      if (c) return { kind: "created", template: shortTmpl(c.templateId), packageName: c.packageName, contractId: c.contractId, argument: c.createArgument, signatories: c.signatories, observers: c.observers };
+      if (a) return { kind: "archived", template: shortTmpl(a.templateId), contractId: a.contractId };
+      return { kind: "other" };
+    });
+    return { updateId: v.updateId, offset: v.offset, effectiveAt: v.effectiveAt, synchronizerId: v.synchronizerId, events };
+  }
   // The Canton tx hash (update id) of the transaction that created a contract, looked up by the
   // contract's ACS offset. Immutable once committed, so cache forever. Powers the per-row ↗
   // "copy tx hash" button in the UI.

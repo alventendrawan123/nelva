@@ -135,6 +135,8 @@ app.get("/api/wallet/claim-excess-info", h(async (req, res) => res.json(await le
 // tx hash (update id) of the transaction that created a contract, by its ACS offset — for the
 // per-row "copy tx hash" button. Returns only a hash; safe to serve unauthenticated like other reads.
 app.get("/api/tx-by-offset", h(async (req, res) => res.json(await ledger.txByOffset(Number(req.query.offset)))));
+// Nelva Explorer: live transaction details by update id (stakeholder-view — Canton has no public explorer for app tx)
+app.get("/api/tx/:updateId", h(async (req, res) => res.json(await ledger.txDetails(String(req.params.updateId)))));
 app.post("/api/faucet", h(async (req, res) => {
   // fund the CALLER only (never a body-supplied party) so it can't be used to mint to
   // arbitrary/unbounded party names.

@@ -44,6 +44,7 @@ export interface Ledger {
   walletRepayInfo(party: string, loanId: string): Promise<any>;
   walletClaimExcessInfo(party: string, loanId: string): Promise<any>;
   txByOffset(offset: number): Promise<{ updateId: string }>;
+  txDetails(updateId: string): Promise<any>;
   walletFaucet(party: string): Promise<any>;
 
   // ── extended additions ──
