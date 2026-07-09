@@ -179,7 +179,13 @@ function useMarketCallbacks(successMessage: string) {
       invalidate();
       showSuccess(successMessage);
     },
-    onError: (error: Error) => showError(error.message),
+    onError: (error: Error) => {
+      // A rejected action is often a stale cache — a loan/bid/borrow the ledger already archived
+      // (e.g. clicking Claim/Repay on a contract a prior action consumed). Refetch on error too so
+      // the phantom row disappears instead of leaving the user clicking a ghost in an error loop.
+      invalidate();
+      showError(error.message);
+    },
   };
 }
 
