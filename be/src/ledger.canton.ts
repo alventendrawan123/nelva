@@ -76,7 +76,7 @@ async function authHeader(): Promise<Record<string, string>> {
     scope: process.env.AUTH_SCOPE ?? "daml_ledger_api",
   });
   if (process.env.AUTH_AUDIENCE) form.set("audience", process.env.AUTH_AUDIENCE);
-  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form });
+  const r = await rfetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form });
   const txt = await r.text();
   if (!r.ok) throw new Error(`auth token fetch -> ${r.status} ${txt.slice(0, 200)}`);
   const j = JSON.parse(txt);
@@ -93,15 +93,26 @@ function ledgerError(path: string, status: number, txt: string): Error {
   e.ledger = true; e.status = status; e.code = code;
   return e;
 }
+// The shared DevNet ledger endpoints connect-timeout intermittently; a single dropped fetch
+// surfaced to the app as a 400 ("wallet prepare failed") even though the command was fine.
+// Retry NETWORK-level failures only (fetch throws before an HTTP response) — an HTTP error is a
+// real ledger verdict and passes through. Re-posting a submit with the same commandId is safe:
+// Canton's command dedup rejects the duplicate instead of double-applying it.
+async function rfetch(url: string, opt: any, tries = 4): Promise<Response> {
+  for (let i = 0; ; i++) {
+    try { return await fetch(url, opt); }
+    catch (e) { if (i >= tries - 1) throw e; await new Promise((r) => setTimeout(r, 1500)); }
+  }
+}
 async function post(path: string, body: any): Promise<any> {
-  const r = await fetch(BASE + path, { method: "POST", headers: { "Content-Type": "application/json", ...(await authHeader()) }, body: JSON.stringify(body) });
+  const r = await rfetch(BASE + path, { method: "POST", headers: { "Content-Type": "application/json", ...(await authHeader()) }, body: JSON.stringify(body) });
   const txt = await r.text();
   if (r.status === 401) { _tok = null; } // force refresh next call
   if (!r.ok) throw ledgerError(path, r.status, txt);
   return txt ? JSON.parse(txt) : {};
 }
 async function get(path: string): Promise<any> {
-  const r = await fetch(BASE + path, { headers: { ...(await authHeader()) } });
+  const r = await rfetch(BASE + path, { headers: { ...(await authHeader()) } });
   if (r.status === 401) { _tok = null; }
   if (!r.ok) throw ledgerError(path, r.status, await r.text().catch(() => ""));
   return r.json();
