@@ -232,7 +232,9 @@ export async function borrowAsWallet(
 /** Accept a match proposal as the wallet borrower — draws lender funds + collateral
  *  and creates the Loan, all in one wallet-signed transaction. The BE supplies the
  *  disclosed contracts (the matched bids + their locked holdings) the borrower can't see. */
-export async function acceptAsWallet(proposalCid: string): Promise<string | undefined> {
+export async function acceptAsWallet(
+  proposalCid: string,
+): Promise<string | undefined> {
   const party = activeParty();
   if (!party) throw new Error("Wallet not connected.");
   const { packageId } = await getConfig();
@@ -263,7 +265,9 @@ export async function acceptAsWallet(proposalCid: string): Promise<string | unde
  *  reclaims collateral, all wallet-signed. The borrower pays from their OWN unlocked
  *  holding (> owed), not minted funds; the BE supplies the operator-signed
  *  CreditScore (BumpUp target) as a disclosed contract. */
-export async function repayAsWallet(loanId: string): Promise<string | undefined> {
+export async function repayAsWallet(
+  loanId: string,
+): Promise<string | undefined> {
   const party = activeParty();
   if (!party) throw new Error("Wallet not connected.");
   const { packageId } = await getConfig();
@@ -308,7 +312,9 @@ export async function repayAsWallet(loanId: string): Promise<string | undefined>
  *  slashed to the operator, 95% returned unlocked. The collateral is borrower-owned
  *  and the operator authority comes from the proposal's signature, so no disclosed
  *  contracts are needed. */
-export async function rejectAsWallet(proposalCid: string): Promise<string | undefined> {
+export async function rejectAsWallet(
+  proposalCid: string,
+): Promise<string | undefined> {
   const { packageId } = await getConfig();
   return submit([
     {
@@ -325,7 +331,9 @@ export async function rejectAsWallet(proposalCid: string): Promise<string | unde
 /** Cancel an unmatched borrow intent as the wallet borrower and reclaim the collateral.
  *  Asset.Unlock is controller=owner=borrower, so the borrower's signature suffices — no
  *  disclosed contracts, no operator authority. */
-export async function cancelBorrowAsWallet(borrowCid: string): Promise<string | undefined> {
+export async function cancelBorrowAsWallet(
+  borrowCid: string,
+): Promise<string | undefined> {
   const { packageId } = await getConfig();
   return submit([
     {
@@ -341,7 +349,9 @@ export async function cancelBorrowAsWallet(borrowCid: string): Promise<string | 
 
 /** Withdraw a sealed bid as the wallet lender after its deadline (anti-griefing) and
  *  reclaim the locked funds. Controller=lender; the SC rejects it before the deadline. */
-export async function withdrawBidAsWallet(bidCid: string): Promise<string | undefined> {
+export async function withdrawBidAsWallet(
+  bidCid: string,
+): Promise<string | undefined> {
   const { packageId } = await getConfig();
   return submit([
     {
@@ -358,7 +368,9 @@ export async function withdrawBidAsWallet(bidCid: string): Promise<string | unde
 /** Reclaim collateral ABOVE the required amount on an active loan, wallet-signed. The
  *  borrower can't see the oracle price nor the operator-owned escrow, so the BE discloses
  *  both and returns the price cid to pass. */
-export async function claimExcessAsWallet(loanCid: string): Promise<string | undefined> {
+export async function claimExcessAsWallet(
+  loanCid: string,
+): Promise<string | undefined> {
   const party = activeParty();
   if (!party) throw new Error("Wallet not connected.");
   const { packageId } = await getConfig();

@@ -5,6 +5,8 @@ import { useFeedback } from "@/context/FeedbackContext";
 import { useParty } from "@/context/PartyContext";
 import { useWallet } from "@/context/WalletContext";
 import { api } from "@/lib/api/endpoints";
+import type { Bid, BorrowIntent, Loan } from "@/lib/api/schemas";
+import { recordTx } from "@/lib/txlog";
 import {
   acceptAsWallet,
   borrowAsWallet,
@@ -15,8 +17,6 @@ import {
   repayAsWallet,
   withdrawBidAsWallet,
 } from "@/lib/wallet/commands";
-import type { Bid, BorrowIntent, Loan } from "@/lib/api/schemas";
-import { recordTx } from "@/lib/txlog";
 
 const keys = {
   status: ["status"] as const,

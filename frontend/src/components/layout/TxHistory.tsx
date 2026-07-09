@@ -2,7 +2,13 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, Check, Copy } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { loadTxLog, subscribeTxLog, type TxEntry } from "@/lib/txlog";
 
 const shortHash = (h: string) => `${h.slice(0, 10)}…${h.slice(-6)}`;

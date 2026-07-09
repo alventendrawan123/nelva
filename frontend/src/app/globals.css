@@ -24,9 +24,43 @@
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --font-heading:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue",
+    var(--font-inter), sans-serif;
+  --font-body:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+    var(--font-inter), sans-serif;
+
+  --color-lp-text: #f4f4f5;
+  --color-lp-muted: #a1a1aa;
+  --color-lp-accent: #fafafa;
+  --color-lp-accent-hover: #ffffff;
+  --color-lp-accent-foreground: #0a0a0a;
+  --color-lp-bg: #0a0a0a;
+  --color-lp-surface: #131316;
+  --color-lp-surface-2: #1a1a1e;
+  --color-lp-border: rgba(255, 255, 255, 0.1);
+  --color-lp-sheet: #17171b;
+  --color-lp-scrim: rgba(0, 0, 0, 0.6);
+
+  --color-tier-bronze: #cd7f32;
+  --color-tier-silver: #9aa4ad;
+  --color-tier-gold: #d4a017;
+  --color-tier-platinum: #7fa8d9;
 }
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { FiExternalLink } from "react-icons/fi";
 import { Badge } from "@/components/ui/Badge";
 import { TokenIcon } from "@/components/ui/TokenIcon";

@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { Navbar } from "@/components/layout/Navbar";
-import { Providers } from "@/lib/query/Providers";
+import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,10 +12,16 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800", "900"],
+});
+
 export const metadata: Metadata = {
-  title: "Nelva",
+  title: "Nelva - private, provably-fair P2P lending on Canton",
   description:
-    "Private sealed-bid peer-to-peer lending on Canton, with auditable matching.",
+    "Sealed-bid P2P lending on Canton. Your rate stays sealed and an independent auditor can re-run the match on-ledger to prove it was fair.",
 };
 
 export default function RootLayout({
@@ -28,13 +32,10 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <Providers>
-          <Navbar />
-          <main className="flex-1">{children}</main>
-        </Providers>
+        {children}
       </body>
     </html>
   );

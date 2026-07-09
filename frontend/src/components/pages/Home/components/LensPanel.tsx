@@ -273,8 +273,8 @@ export function LensPanel() {
                     <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-foreground">
                       node auditor/audit.mjs
                     </span>{" "}
-                    in a terminal. Its on-ledger verdict shows above as the Audit
-                    Verdict; the operator&apos;s app can&apos;t fake it.
+                    in a terminal. Its on-ledger verdict shows above as the
+                    Audit Verdict; the operator&apos;s app can&apos;t fake it.
                   </p>
                 </div>
               </Card>
@@ -285,7 +285,6 @@ export function LensPanel() {
     </div>
   );
 }
-
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
