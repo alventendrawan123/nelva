@@ -52,7 +52,9 @@ export const loanSchema = z.object({
   blendedRate: z.number(),
   ticks: z.array(tickSchema),
   collateralAmount: z.number(),
-  requiredCollateral: z.number(),
+  // optional so a not-yet-redeployed backend (which doesn't emit it) still parses; the claim
+  // button treats a missing value as "no excess" until the backend catches up.
+  requiredCollateral: z.number().optional(),
   tier: tierSchema,
   maturity: z.string(),
   status: z.enum(["ACTIVE", "REPAID", "LIQUIDATED"]),

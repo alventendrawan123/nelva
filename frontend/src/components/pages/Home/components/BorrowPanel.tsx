@@ -231,7 +231,8 @@ export function BorrowPanel() {
                   trailing={
                     loan.status === "ACTIVE" ? (
                       <div className="flex items-center gap-2">
-                        {loan.collateralAmount - loan.requiredCollateral >
+                        {loan.collateralAmount -
+                          (loan.requiredCollateral ?? loan.collateralAmount) >
                         0.01 ? (
                           <Button
                             variant="ghost"
