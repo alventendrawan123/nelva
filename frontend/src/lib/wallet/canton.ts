@@ -98,11 +98,13 @@ export async function disconnectCantonWallet(): Promise<void> {
 export async function submitViaCantonWallet(
   commands: unknown[],
   disclosedContracts: unknown[] = [],
-): Promise<void> {
+): Promise<string | undefined> {
   const sdk = await loadSdk();
-  await sdk.prepareExecuteAndWait({
+  const result = (await sdk.prepareExecuteAndWait({
     commandId: crypto.randomUUID(), // idempotency / tracking per submission
     commands: commands as never,
     disclosedContracts: disclosedContracts as never,
-  });
+  })) as { updateId?: string; transactionId?: string } | undefined;
+  // surface the committed transaction's id (tx hash) when the wallet reports one
+  return result?.updateId ?? result?.transactionId;
 }

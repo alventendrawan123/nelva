@@ -30,7 +30,11 @@ async function getConfig(): Promise<Config> {
 // route a wallet-signed submission to the active transport: the hosted CIP-0103
 // gateway (canton) or the embedded-key BE relay (embedded). Command construction
 // is identical — only the transport differs.
-function submit(commands: unknown[], disclosed: unknown[] = []): Promise<void> {
+// Returns the committed transaction's update id (tx hash) when the transport reports one.
+function submit(
+  commands: unknown[],
+  disclosed: unknown[] = [],
+): Promise<string | undefined> {
   return getWalletKind() === "canton"
     ? submitViaCantonWallet(commands, disclosed)
     : submitAsWallet(commands, disclosed);
@@ -65,7 +69,7 @@ async function holdingsUntil(
 export async function placeBidAsWallet(
   amount: number,
   rate: number,
-): Promise<void> {
+): Promise<string | undefined> {
   const party = activeParty();
   if (!party) throw new Error("Wallet not connected.");
   const { packageId, parties } = await getConfig();
@@ -114,8 +118,8 @@ export async function placeBidAsWallet(
     ),
   );
 
-  // 3. create the sealed bid
-  await submit([
+  // 3. create the sealed bid — this tx's update id is the action's tx hash
+  return submit([
     {
       CreateCommand: {
         templateId: bidTid,
@@ -140,7 +144,7 @@ export async function borrowAsWallet(
   amount: number,
   maxRate: number,
   collateralAmount: number,
-): Promise<void> {
+): Promise<string | undefined> {
   const party = activeParty();
   if (!party) throw new Error("Wallet not connected.");
   const { packageId, parties } = await getConfig();
@@ -203,7 +207,7 @@ export async function borrowAsWallet(
     ),
   );
 
-  await submit([
+  return submit([
     {
       CreateCommand: {
         templateId: borrowTid,
@@ -228,7 +232,7 @@ export async function borrowAsWallet(
 /** Accept a match proposal as the wallet borrower — draws lender funds + collateral
  *  and creates the Loan, all in one wallet-signed transaction. The BE supplies the
  *  disclosed contracts (the matched bids + their locked holdings) the borrower can't see. */
-export async function acceptAsWallet(proposalCid: string): Promise<void> {
+export async function acceptAsWallet(proposalCid: string): Promise<string | undefined> {
   const party = activeParty();
   if (!party) throw new Error("Wallet not connected.");
   const { packageId } = await getConfig();
@@ -240,7 +244,7 @@ export async function acceptAsWallet(proposalCid: string): Promise<void> {
     { headers: { Authorization: `Bearer ${party}` } },
   ).then((r) => r.json());
   if (info?.error) throw new Error(String(info.error));
-  await submit(
+  return submit(
     [
       {
         ExerciseCommand: {
@@ -259,7 +263,7 @@ export async function acceptAsWallet(proposalCid: string): Promise<void> {
  *  reclaims collateral, all wallet-signed. The borrower pays from their OWN unlocked
  *  holding (> owed), not minted funds; the BE supplies the operator-signed
  *  CreditScore (BumpUp target) as a disclosed contract. */
-export async function repayAsWallet(loanId: string): Promise<void> {
+export async function repayAsWallet(loanId: string): Promise<string | undefined> {
   const party = activeParty();
   if (!party) throw new Error("Wallet not connected.");
   const { packageId } = await getConfig();
@@ -280,7 +284,7 @@ export async function repayAsWallet(loanId: string): Promise<void> {
     );
   }
 
-  await submit(
+  return submit(
     [
       {
         ExerciseCommand: {
@@ -304,9 +308,9 @@ export async function repayAsWallet(loanId: string): Promise<void> {
  *  slashed to the operator, 95% returned unlocked. The collateral is borrower-owned
  *  and the operator authority comes from the proposal's signature, so no disclosed
  *  contracts are needed. */
-export async function rejectAsWallet(proposalCid: string): Promise<void> {
+export async function rejectAsWallet(proposalCid: string): Promise<string | undefined> {
   const { packageId } = await getConfig();
-  await submit([
+  return submit([
     {
       ExerciseCommand: {
         templateId: `${packageId}:Nelva.Settlement:MatchProposal`,
@@ -321,9 +325,9 @@ export async function rejectAsWallet(proposalCid: string): Promise<void> {
 /** Cancel an unmatched borrow intent as the wallet borrower and reclaim the collateral.
  *  Asset.Unlock is controller=owner=borrower, so the borrower's signature suffices — no
  *  disclosed contracts, no operator authority. */
-export async function cancelBorrowAsWallet(borrowCid: string): Promise<void> {
+export async function cancelBorrowAsWallet(borrowCid: string): Promise<string | undefined> {
   const { packageId } = await getConfig();
-  await submit([
+  return submit([
     {
       ExerciseCommand: {
         templateId: `${packageId}:Nelva.Lending:BorrowIntent`,
@@ -337,9 +341,9 @@ export async function cancelBorrowAsWallet(borrowCid: string): Promise<void> {
 
 /** Withdraw a sealed bid as the wallet lender after its deadline (anti-griefing) and
  *  reclaim the locked funds. Controller=lender; the SC rejects it before the deadline. */
-export async function withdrawBidAsWallet(bidCid: string): Promise<void> {
+export async function withdrawBidAsWallet(bidCid: string): Promise<string | undefined> {
   const { packageId } = await getConfig();
-  await submit([
+  return submit([
     {
       ExerciseCommand: {
         templateId: `${packageId}:Nelva.Lending:SealedBid`,
@@ -354,7 +358,7 @@ export async function withdrawBidAsWallet(bidCid: string): Promise<void> {
 /** Reclaim collateral ABOVE the required amount on an active loan, wallet-signed. The
  *  borrower can't see the oracle price nor the operator-owned escrow, so the BE discloses
  *  both and returns the price cid to pass. */
-export async function claimExcessAsWallet(loanCid: string): Promise<void> {
+export async function claimExcessAsWallet(loanCid: string): Promise<string | undefined> {
   const party = activeParty();
   if (!party) throw new Error("Wallet not connected.");
   const { packageId } = await getConfig();
@@ -363,7 +367,7 @@ export async function claimExcessAsWallet(loanCid: string): Promise<void> {
     { headers: { Authorization: `Bearer ${party}` } },
   ).then((r) => r.json());
   if (info?.error) throw new Error(String(info.error));
-  await submit(
+  return submit(
     [
       {
         ExerciseCommand: {

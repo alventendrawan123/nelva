@@ -181,9 +181,15 @@ function useMarketCallbacks(successMessage: string) {
   const invalidate = useInvalidateMarket();
   const { showSuccess, showError } = useFeedback();
   return {
-    onSuccess: () => {
+    // wallet-path mutations resolve with the committed transaction's update id (tx hash);
+    // show it so every lender/borrower action is traceable to a real on-ledger transaction.
+    // (admin mutations resolve with other shapes — only a string result is treated as a tx id)
+    onSuccess: (data?: unknown) => {
       invalidate();
-      showSuccess(successMessage);
+      const txId = typeof data === "string" && data ? data : undefined;
+      showSuccess(
+        txId ? `${successMessage} · tx ${txId.slice(0, 24)}…` : successMessage,
+      );
     },
     onError: (error: Error) => {
       // A rejected action is often a stale cache — a loan/bid/borrow the ledger already archived
@@ -206,7 +212,7 @@ export function usePlaceBid() {
     }: {
       amount: number;
       rate: number;
-    }): Promise<void> =>
+    }): Promise<string | void> =>
       partyId
         ? placeBidAsWallet(amount, rate)
         : api.placeBid(party ?? "", amount, rate).then(() => undefined),
@@ -222,7 +228,7 @@ export function useBorrow() {
       amount: number;
       maxRate: number;
       collateralAmount: number;
-    }): Promise<void> =>
+    }): Promise<string | void> =>
       partyId
         ? borrowAsWallet(input.amount, input.maxRate, input.collateralAmount)
         : api
@@ -241,7 +247,7 @@ export function useAccept() {
   const { party } = useParty();
   const { partyId } = useWallet();
   return useMutation({
-    mutationFn: (proposalId: string): Promise<void> =>
+    mutationFn: (proposalId: string): Promise<string | void> =>
       partyId
         ? acceptAsWallet(proposalId)
         : api.accept(party ?? "", proposalId).then(() => undefined),
@@ -253,7 +259,7 @@ export function useReject() {
   const { party } = useParty();
   const { partyId } = useWallet();
   return useMutation({
-    mutationFn: (proposalId: string): Promise<void> =>
+    mutationFn: (proposalId: string): Promise<string | void> =>
       partyId
         ? rejectAsWallet(proposalId)
         : api.reject(party ?? "", proposalId).then(() => undefined),
@@ -267,7 +273,7 @@ export function useWithdrawBid() {
   const { party } = useParty();
   const { partyId } = useWallet();
   return useMutation({
-    mutationFn: (bid: Bid): Promise<void> =>
+    mutationFn: (bid: Bid): Promise<string | void> =>
       partyId
         ? withdrawBidAsWallet(bid.cid ?? "")
         : api.withdrawBid(party ?? "", bid.bidId).then(() => undefined),
@@ -279,7 +285,7 @@ export function useCancelBorrow() {
   const { party } = useParty();
   const { partyId } = useWallet();
   return useMutation({
-    mutationFn: (borrow: BorrowIntent): Promise<void> =>
+    mutationFn: (borrow: BorrowIntent): Promise<string | void> =>
       partyId
         ? cancelBorrowAsWallet(borrow.cid ?? "")
         : api.cancelBorrow(party ?? "", borrow.borrowId).then(() => undefined),
@@ -292,7 +298,7 @@ export function useClaimExcess() {
   const { partyId } = useWallet();
   return useMutation({
     // loanId IS the contract id, so both paths take loan.loanId.
-    mutationFn: (loan: Loan): Promise<void> =>
+    mutationFn: (loan: Loan): Promise<string | void> =>
       partyId
         ? claimExcessAsWallet(loan.loanId)
         : api.claimExcess(party ?? "", loan.loanId).then(() => undefined),
@@ -304,7 +310,7 @@ export function useRepay() {
   const { party } = useParty();
   const { partyId } = useWallet();
   return useMutation({
-    mutationFn: (loanId: string): Promise<void> =>
+    mutationFn: (loanId: string): Promise<string | void> =>
       partyId
         ? repayAsWallet(loanId)
         : api.repay(party ?? "", loanId).then(() => undefined),

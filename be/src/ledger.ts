@@ -37,7 +37,7 @@ export interface Ledger {
   walletOnboard(partyHint: string, publicKeyB64: string): Promise<any>;
   walletAllocate(topologyTransactions: any[], fingerprint: string, multiHashSig: string): Promise<any>;
   walletPrepare(party: string, commands: any[], disclosedContracts?: any[]): Promise<any>;
-  walletExecute(party: string, preparedTransaction: string, hashingSchemeVersion: string, fingerprint: string, sig: string): Promise<any>;
+  walletExecute(party: string, preparedTransaction: string, hashingSchemeVersion: string, fingerprint: string, sig: string, commandId?: string): Promise<any>;
   config(): Promise<any>;
   walletHoldings(party: string): Promise<any[]>;
   walletAcceptInfo(proposalCid: string): Promise<any>;

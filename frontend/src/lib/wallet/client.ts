@@ -31,6 +31,7 @@ type PrepareResponse = {
   preparedTransaction: string;
   preparedTransactionHash: string;
   hashingSchemeVersion: string;
+  commandId?: string;
 };
 
 /** Is a stored party still allocated on the current ledger? Only a definitive
@@ -80,11 +81,13 @@ export async function connectWallet(partyHint: string): Promise<string> {
   return onb.partyId;
 }
 
-/** Submit Daml commands signed by the connected wallet (key stays local). */
+/** Submit Daml commands signed by the connected wallet (key stays local).
+ *  Returns the committed transaction's on-ledger update id (tx hash) when the
+ *  backend could attribute it before its wait timeout. */
 export async function submitAsWallet(
   commands: unknown[],
   disclosedContracts: unknown[] = [],
-): Promise<void> {
+): Promise<string | undefined> {
   const party = wallet.party();
   const fingerprint = wallet.fingerprint();
   if (!party || !fingerprint) throw new Error("Wallet not connected.");
@@ -95,13 +98,15 @@ export async function submitAsWallet(
     disclosedContracts,
   });
   const signature = await signHashB64(prep.preparedTransactionHash);
-  await call("/wallet/execute", {
+  const exec = await call<{ updateId?: string }>("/wallet/execute", {
     party,
     preparedTransaction: prep.preparedTransaction,
     hashingSchemeVersion: prep.hashingSchemeVersion,
     fingerprint,
     signature,
+    commandId: prep.commandId,
   });
+  return exec?.updateId;
 }
 
 export { wallet };

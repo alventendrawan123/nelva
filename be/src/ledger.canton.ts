@@ -716,14 +716,16 @@ export class CantonLedger implements Ledger {
     return r;
   }
   // step 3: build a transaction for the user's commands -> return the hash for the FE to sign. actAs is forced to the wallet party.
+  // commandId goes back to the FE so execute can look up the committed transaction's updateId.
   async walletPrepare(party: string, commands: any[], disclosedContracts: any[] = []) {
     const synchronizerId = await this.synchronizerId();
+    const commandId = this.nid("wc");
     const r = await post("/v2/interactive-submission/prepare", {
-      userId: ledgerUserId(), commandId: this.nid("wc"), actAs: [party], synchronizerId,
+      userId: ledgerUserId(), commandId, actAs: [party], synchronizerId,
       commands, packageIdSelectionPreference: [], verboseHashing: true,
       disclosedContracts,
     });
-    return { preparedTransaction: r.preparedTransaction, preparedTransactionHash: r.preparedTransactionHash, hashingSchemeVersion: r.hashingSchemeVersion };
+    return { preparedTransaction: r.preparedTransaction, preparedTransactionHash: r.preparedTransactionHash, hashingSchemeVersion: r.hashingSchemeVersion, commandId };
   }
 
   // ACS (operator view) WITH createdEventBlob — needed to build disclosed contracts.
@@ -817,12 +819,53 @@ export class CantonLedger implements Ledger {
     try { return await job; } finally { this._faucetLocks.delete(pid); }
   }
   // step 4: FE returns the signature over the prepared hash -> we submit. The key never left the browser.
-  async walletExecute(party: string, preparedTransaction: string, hashingSchemeVersion: string, fingerprint: string, sig: string) {
-    return post("/v2/interactive-submission/execute", {
+  // Interactive execute is async (the response body is empty), so when the FE passes the prepare's
+  // commandId we poll the completion stream from the pre-execute offset until that command's
+  // completion appears and return its updateId — the on-ledger transaction hash the UI shows.
+  async walletExecute(party: string, preparedTransaction: string, hashingSchemeVersion: string, fingerprint: string, sig: string, commandId?: string) {
+    const begin = commandId ? Number((await get("/v2/state/ledger-end")).offset) : 0;
+    await post("/v2/interactive-submission/execute", {
       preparedTransaction, hashingSchemeVersion, userId: ledgerUserId(), submissionId: this.nid("we"),
       deduplicationPeriod: { Empty: {} },
       partySignatures: { signatures: [{ party, signatures: [{ format: "SIGNATURE_FORMAT_CONCAT", signature: sig, signedBy: fingerprint, signingAlgorithmSpec: "SIGNING_ALGORITHM_SPEC_ED25519" }] }] },
     });
+    if (!commandId) return {};
+    // dig the completion out of its response wrapper without pinning the exact nesting
+    const findCompletion = (node: any): any => {
+      if (!node || typeof node !== "object") return null;
+      if (node.commandId === commandId && ("updateId" in node || "status" in node)) return node;
+      for (const v of Object.values(node)) { const hit = findCompletion(v); if (hit) return hit; }
+      return null;
+    };
+    const deadline = Date.now() + 20_000;
+    let from = begin;
+    while (Date.now() < deadline) {
+      // plain fetch + 5s abort: the completions endpoint long-polls, and a hung poll here would
+      // hang the whole /api/wallet/execute response. A failed poll just tries again.
+      const rows: any[] = await (async () => {
+        try {
+          const r = await fetch(BASE + "/v2/commands/completions", {
+            method: "POST", headers: { "Content-Type": "application/json", ...(await authHeader()) },
+            body: JSON.stringify({ userId: ledgerUserId(), parties: [party], beginExclusive: from, limit: 100, streamIdleTimeoutMs: 2000 }),
+            signal: AbortSignal.timeout(5000),
+          });
+          return r.ok ? await r.json() : [];
+        } catch { return []; }
+      })();
+      for (const row of rows ?? []) {
+        const hit = findCompletion(row);
+        if (hit) {
+          const failed = hit.status && Number(hit.status.code ?? 0) !== 0;
+          if (failed) { const e: any = new Error(`command failed: ${hit.status?.message ?? "rejected"}`); e.ledger = true; e.status = 400; throw e; }
+          return { updateId: hit.updateId };
+        }
+        const chk = row?.completionResponse?.OffsetCheckpoint?.value?.offset
+          ?? row?.completionResponse?.Completion?.value?.offset;
+        if (chk) from = Math.max(from, Number(chk));
+      }
+      await new Promise((r) => setTimeout(r, 800));
+    }
+    return {}; // command landed (execute succeeded); we just couldn't attribute the updateId in time
   }
 
   // package id + node-hosted party ids, so the FE can build Daml commands for wallet signing
