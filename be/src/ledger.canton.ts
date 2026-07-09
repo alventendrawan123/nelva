@@ -502,7 +502,11 @@ export class CantonLedger implements Ledger {
     const bids = await this.acsAs(op, "Lending:SealedBid");
     const borrows = await this.acsAs(op, "Lending:BorrowIntent");
     if (!bids.length || !borrows.length) return [];
-    const b = borrows[0], ba = b.arg;
+    // Prefer a wallet borrower (party id without the nelva- persona prefix) so the demo's Cheat
+    // Match targets the connected wallet's borrow — its owner then sees the fabricated proposal in
+    // their Borrow tab and Accept rejects it (prevent-by-construction). Falls back to the first.
+    const b = (PARTY_PREFIX ? borrows.find((x) => !String(x.arg.borrower).startsWith(PARTY_PREFIX)) : undefined) ?? borrows[0];
+    const ba = b.arg;
     const bidInputs: (BidInput & { cid: string })[] = bids.map((x) => ({ bidId: x.arg.bidId, lender: x.arg.lender, amount: Number(x.arg.amount), rate: Number(x.arg.bidRate), cid: x.cid }));
     const fills = cheatMatch(bidInputs, [{ borrowId: ba.borrowId, borrower: ba.borrower, amount: Number(ba.amount), maxRate: Number(ba.maxRate) }]);
     const f = fills[0];

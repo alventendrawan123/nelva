@@ -5,7 +5,10 @@ const DEFAULT_API_BASE_URL = "/api";
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
 
-export const API_TIMEOUT_MS = 8000;
+// 30s: a single admin action (run/cheat match, accept, repay) fans out to several sequential
+// ledger round-trips, and the shared DevNet is often ~10s/op — an 8s cap aborted them mid-flight
+// ("server took too long") even though the backend completed the write.
+export const API_TIMEOUT_MS = 30000;
 
 // Hosted Wallet Gateway URL for the CIP-0103 dApp SDK (RemoteAdapter). When set,
 // a real Canton wallet appears in the connect picker alongside the embedded one.
