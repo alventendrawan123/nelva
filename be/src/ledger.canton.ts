@@ -38,9 +38,15 @@ const tid = (s: string) => `${PKG}:Nelva.${s}`;
 // Template filters in the v2 ACS query must use the PACKAGE NAME (#name), not a package id
 // ("expected a package name"). The package-name form resolves across ALL upgrade versions.
 const tfilter = (s: string) => `#nelva-sc:Nelva.${s}`;
-// A template match that ignores the package-id prefix, so reads see contracts from every upgrade
-// version (a Platinum CreditScore minted on 0.2.0 must survive the 0.3.0 upgrade, not vanish).
-const isTmpl = (templateId: string, tmpl: string) => templateId.endsWith(`:Nelva.${tmpl}`);
+// Reads span the current package AND its immediate predecessor — the compatible-upgrade PAIR — so
+// a Platinum CreditScore (and the open loan) minted on 0.2.0 survives the 0.3.0 upgrade. It must
+// NOT span every historical version: an unrelated older package (0.1.0) left ~27 stale bids and
+// ~30 stale proposals on this shared DevNet that would otherwise flood the app and shadow the live
+// tier with an orphaned score. Allowlist the exact pair.
+const PREV_PKG = "27da556acd65944ceb385c82fa94c3a64551b9bb263ad4668eaa55e9ba8e21c9"; // nelva-sc 0.2.0
+const PKG_IDS = new Set([PKG, PREV_PKG]);
+const isTmpl = (templateId: string, tmpl: string) =>
+  templateId.endsWith(`:Nelva.${tmpl}`) && PKG_IDS.has(templateId.split(":")[0]);
 // Display/compare name = hint with the party prefix stripped, so "nelva-Borrower::ns" reads
 // back as "Borrower" and matches a bare viewer name from dev-auth.
 const nameOf = (pid: string) => {
