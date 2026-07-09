@@ -18,7 +18,7 @@ const BASE = process.env.JSON_LEDGER_API ?? "http://localhost:7575";
 const ENV_PKG = process.env.NELVA_PACKAGE_ID?.trim();
 const PKG = ENV_PKG && /^[0-9a-f]{64}$/.test(ENV_PKG)
   ? ENV_PKG
-  : "27da556acd65944ceb385c82fa94c3a64551b9bb263ad4668eaa55e9ba8e21c9";
+  : "173191343a5615bf6e612796886f52e59b668277985a117c7d4299b8832af7ce";
 const USER = process.env.LEDGER_USER_ID ?? "nelva-be";
 // On a SHARED validator (e.g. 5N DevNet sandbox) the participant namespace is shared, so a
 // bare hint like "Operator" collides with another team's "Operator". A prefix scopes our
@@ -30,11 +30,17 @@ const DEADLINE = "2030-01-01T00:00:00Z"; // default far-future maturity for loan
 // DEADLINE here made WithdrawBid impossible until 2030, locking lender funds.
 const deadlineFrom = (days: number) => new Date(Date.now() + days * 86400000).toISOString();
 
+// Commands pin PKG (the CURRENT package id) so a create/exercise runs THIS version's choices.
+// After a compatible upgrade (e.g. 0.2.0 -> 0.3.0, same schema) Canton's smart-contract upgrade
+// applies these choices to contracts created by the OLD version too, so pinning the new id lets
+// the fixed logic run over pre-upgrade loans without re-creating them.
 const tid = (s: string) => `${PKG}:Nelva.${s}`;
 // Template filters in the v2 ACS query must use the PACKAGE NAME (#name), not a package id
-// ("expected a package name"). The package-name form resolves across upgrade versions, so the
-// JS-side `=== tid(...)` check still narrows to the current package's contracts.
+// ("expected a package name"). The package-name form resolves across ALL upgrade versions.
 const tfilter = (s: string) => `#nelva-sc:Nelva.${s}`;
+// A template match that ignores the package-id prefix, so reads see contracts from every upgrade
+// version (a Platinum CreditScore minted on 0.2.0 must survive the 0.3.0 upgrade, not vanish).
+const isTmpl = (templateId: string, tmpl: string) => templateId.endsWith(`:Nelva.${tmpl}`);
 // Display/compare name = hint with the party prefix stripped, so "nelva-Borrower::ns" reads
 // back as "Borrower" and matches a bare viewer name from dev-auth.
 const nameOf = (pid: string) => {
@@ -216,11 +222,11 @@ export class CantonLedger implements Ledger {
   }
   private async acsAs(party: string, tmpl: string): Promise<CW[]> {
     const end = (await get("/v2/state/ledger-end")).offset;
-    // Filter to THIS package's template AT THE LEDGER (not in JS). The shared DevNet accumulates
-    // so many contracts across teams + package versions that an unfiltered per-party ACS query
-    // blows the JSON API's max-list-elements limit; a TemplateFilter keyed on the current package
-    // id returns only this template's (this-package) contracts, which also excludes a previous
-    // package's stale contracts after an upgrade (their templateId carries the old package id).
+    // Filter to this template AT THE LEDGER (not in JS). The shared DevNet accumulates so many
+    // contracts across teams that an unfiltered per-party ACS query blows the JSON API's
+    // max-list-elements limit; a package-name TemplateFilter returns only this template's
+    // contracts. It spans every upgrade version, and isTmpl() below keeps them all — so a loan or
+    // CreditScore minted on the previous package survives the upgrade instead of vanishing.
     const arr: any[] = await post("/v2/state/active-contracts", {
       activeAtOffset: end,
       eventFormat: { filtersByParty: { [party]: { cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId: tfilter(tmpl), includeCreatedEventBlob: false } } } }] } }, verbose: true },
@@ -228,7 +234,7 @@ export class CantonLedger implements Ledger {
     const out: CW[] = [];
     for (const e of arr) {
       const ce = e?.contractEntry?.JsActiveContract?.createdEvent;
-      if (ce && String(ce.templateId) === tid(tmpl)) out.push({ cid: ce.contractId, arg: ce.createArgument });
+      if (ce && isTmpl(String(ce.templateId), tmpl)) out.push({ cid: ce.contractId, arg: ce.createArgument });
     }
     return out;
   }

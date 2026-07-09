@@ -18,7 +18,7 @@ const LEDGER = process.env.JSON_LEDGER_API || "https://ledger-api.validator.devn
 const NS = process.env.NELVA_NAMESPACE || "1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8";
 const PREFIX = process.env.NELVA_PARTY_PREFIX || "nelva-";
 const ENV_PKG = process.env.NELVA_PACKAGE_ID?.trim();
-const PKG = ENV_PKG && /^[0-9a-f]{64}$/.test(ENV_PKG) ? ENV_PKG : "27da556acd65944ceb385c82fa94c3a64551b9bb263ad4668eaa55e9ba8e21c9";
+const PKG = ENV_PKG && /^[0-9a-f]{64}$/.test(ENV_PKG) ? ENV_PKG : "173191343a5615bf6e612796886f52e59b668277985a117c7d4299b8832af7ce";
 const AUDITOR = `${PREFIX}Auditor::${NS}`;
 const OPERATOR = `${PREFIX}Operator::${NS}`;
 const tid = (s) => `${PKG}:Nelva.${s}`;
@@ -93,7 +93,7 @@ async function activeProposals() {
     acs("Lending:SealedBid"),
   ]);
   const live = new Set([...borrows, ...bids].map((c) => c.contractId)); // to check each proposal's refs are still live
-  const props = props0.filter((c) => String(c.templateId) === tid("Settlement:MatchProposal")); // this package only
+  const props = props0.filter((c) => String(c.templateId).endsWith(":Nelva.Settlement:MatchProposal")); // any upgrade version
   return props.map((p) => {
     const a = p.createArgument;
     const refsLive = live.has(a.borrowCid) && (a.inputBidCids ?? []).every((c) => live.has(c));

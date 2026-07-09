@@ -16,6 +16,14 @@ import Nelva.Lending
 import Nelva.Match
 import Nelva.Credit
 
+-- Liquidation health floor: a loan is a default once its collateral VALUE drops below this
+-- multiple of the outstanding principal, and ClaimExcess refuses any withdrawal that would leave
+-- health under it. It MUST sit below the lowest tier multiplier (Platinum 1.2x) — a fixed 1.5
+-- floor put every top-tier borrower under water on day one (health 1.2 < 1.5), so Platinum could
+-- never reclaim genuine excess and was liquidatable at its own required collateral.
+healthFloor : Numeric 10
+healthFloor = 1.1
+
 -- On-ledger tick: like the pure Tick but carries the SealedBid ContractId so
 -- Accept can draw the funds. `bidId` kept for deterministic comparison in audit.
 data MatchedTick = MatchedTick
@@ -279,7 +287,7 @@ template Loan
         -- price. Otherwise a borrower whose collateral has fallen in value could strip the
         -- nominal 'excess' just before Liquidate and leave lenders under-recovered.
         let healthAfter = (requiredCollateral * pu.price) / principal
-        assertMsg "withdrawal would leave the loan under-collateralized at current price" (healthAfter >= 1.5)
+        assertMsg "withdrawal would leave the loan under-collateralized at current price" (healthAfter >= healthFloor)
         (excessPiece, remOpt) <- exercise collateralCid Split with splitAmount = excess
         _ <- exercise excessPiece Transfer with newOwner = borrower
         newEscrow <- case remOpt of
@@ -309,7 +317,7 @@ template Loan
             fresh = pu.asOf > addRelTime now (hours (-24))
             health = (collateralAmount * pu.price) / principal
             -- genuine default: distressed AND provable with a fresh price
-            unhealthy = health < 1.5 && fresh
+            unhealthy = health < healthFloor && fresh
         assertMsg "loan still healthy or price stale" (matured || unhealthy)
         if unhealthy
           then do

@@ -187,7 +187,7 @@ testLiquidate = do
     exerciseCmd round RunMatch with bidCids = [bidA, bidB], borrowCids = [borrow], creditScoreCids = [cs0], oracle = p.oracle
   loan <- submitMulti [p.borrower] [p.operator] do exerciseCmd proposal Accept
 
-  -- price drop: health = 300 * 0.5 / 150 = 1.0 < 1.5 -> liquidatable
+  -- price drop: health = 300 * 0.5 / 150 = 1.0 < 1.1 (healthFloor) -> liquidatable
   price <- submit p.oracle do
     createCmd PriceUpdate with oracle = p.oracle, operator = p.operator, instrument = "USD", price = 0.5, asOf = now
   posns <- map fst <$> query @LoanPosition p.operator
