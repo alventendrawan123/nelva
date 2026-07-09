@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ConnectWallet } from "@/components/layout/ConnectWallet";
 import { NavLinks } from "@/components/layout/NavLinks";
+import { TxHistory } from "@/components/layout/TxHistory";
 
 export function Navbar() {
   return (
@@ -24,6 +25,7 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-3">
+          <TxHistory />
           <ConnectWallet />
         </div>
       </div>

@@ -16,6 +16,7 @@ import {
   withdrawBidAsWallet,
 } from "@/lib/wallet/commands";
 import type { Bid, BorrowIntent, Loan } from "@/lib/api/schemas";
+import { recordTx } from "@/lib/txlog";
 
 const keys = {
   status: ["status"] as const,
@@ -187,6 +188,7 @@ function useMarketCallbacks(successMessage: string) {
     onSuccess: (data?: unknown) => {
       invalidate();
       const txId = typeof data === "string" && data ? data : undefined;
+      recordTx(successMessage, txId); // navbar ↗ history: one-click copy of the hash
       showSuccess(
         txId ? `${successMessage} · tx ${txId.slice(0, 24)}…` : successMessage,
       );
