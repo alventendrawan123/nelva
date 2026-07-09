@@ -652,6 +652,23 @@ export class CantonLedger implements Ledger {
   async listBadges(): Promise<AuditBadge[]> {
     return (await this.acsAs(await this.ensureParty("Auditor"), "Settlement:AuditBadge")).map((x) => this.badgeDto(x));
   }
+  // public aggregate of audit verdicts — counts only, never badge contents (those stay auditor-gated)
+  async badgeStats(): Promise<{ green: number; red: number; total: number }> {
+    const badges = await this.listBadges();
+    const green = badges.filter((b) => b.verdict === "GREEN").length;
+    return { green, red: badges.length - green, total: badges.length };
+  }
+  // latest oracle price per instrument (PriceUpdate appends; newest asOf wins)
+  async prices(): Promise<{ instrument: string; price: number; asOf: string }[]> {
+    const op = await this.ensureParty("Operator");
+    const all = await this.acsAs(op, "Settlement:PriceUpdate");
+    const latest = new Map<string, { instrument: string; price: number; asOf: string }>();
+    for (const p of all) {
+      const cur = latest.get(p.arg.instrument);
+      if (!cur || String(p.arg.asOf) > cur.asOf) latest.set(p.arg.instrument, { instrument: p.arg.instrument, price: Number(p.arg.price), asOf: String(p.arg.asOf) });
+    }
+    return [...latest.values()];
+  }
 
   // Perspective is SCOPED to the caller. The operator/auditor projection (every sealed
   // rate) is served only to an operator/auditor Bearer; a borrower/lender sees only their

@@ -210,10 +210,38 @@ export const addressTxsSchema = z.object({
   ),
 });
 
+// Explore: public per-instrument market aggregates (volumes k-anonymised by the BE)
+export const marketSchema = z.object({
+  instruments: z.array(
+    z.object({
+      instrument: z.string(),
+      openBids: z.number(),
+      openBorrows: z.number(),
+      activeLoans: z.number(),
+      totalOpenLendVolume: z.number().nullable(),
+      totalOpenBorrowVolume: z.number().nullable(),
+      avgLoanSize: z.number().nullable(),
+    }),
+  ),
+});
+export const priceRowSchema = z.object({
+  instrument: z.string(),
+  price: z.number(),
+  asOf: z.string(),
+});
+export const badgeStatsSchema = z.object({
+  green: z.number(),
+  red: z.number(),
+  total: z.number(),
+});
+
 export type Tier = z.infer<typeof tierSchema>;
 export type TxDetails = z.infer<typeof txDetailsSchema>;
 export type TxEvent = z.infer<typeof txEventSchema>;
 export type AddressTxs = z.infer<typeof addressTxsSchema>;
+export type Market = z.infer<typeof marketSchema>;
+export type PriceRow = z.infer<typeof priceRowSchema>;
+export type BadgeStats = z.infer<typeof badgeStatsSchema>;
 export type Bid = z.infer<typeof bidSchema>;
 export type BorrowIntent = z.infer<typeof borrowIntentSchema>;
 export type Tick = z.infer<typeof tickSchema>;

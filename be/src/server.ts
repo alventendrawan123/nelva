@@ -264,6 +264,8 @@ app.get("/api/credit-score/:party", h(async (req, res) => {
 
 // ── public marketplace feed (ungated, aggregate-only) ──
 app.get("/api/market", h(async (_req, res) => res.json(await ledger.market())));
+app.get("/api/prices", h(async (_req, res) => res.json(await ledger.prices())));
+app.get("/api/badge-stats", h(async (_req, res) => res.json(await ledger.badgeStats())));
 
 // ── operator (admin / demo controls) — operator role only ──
 app.post("/api/admin/run-match", h(async (req, res) => { if (!requireRole(req, res, "operator")) return; res.json({ proposals: await ledger.runMatch() }); }));

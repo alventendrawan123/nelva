@@ -27,6 +27,8 @@ export interface Ledger {
   auditBids(): Promise<Bid[]>;
   verify(auditor: string, proposalId: string): Promise<AuditBadge>;
   listBadges(): Promise<AuditBadge[]>;
+  badgeStats(): Promise<{ green: number; red: number; total: number }>;
+  prices(): Promise<{ instrument: string; price: number; asOf: string }[]>;
   // hero (perspective scoped to the caller's role/party)
   lens(proposalId: string, viewer?: string, role?: Role): Promise<any>;
   // wallet (real, from ledger)

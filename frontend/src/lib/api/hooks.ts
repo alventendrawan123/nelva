@@ -132,6 +132,36 @@ export function useLensProposals() {
   });
 }
 
+// Explore: public market aggregates + oracle prices + audit-verdict counts
+export function useMarket() {
+  return useQuery({
+    queryKey: ["market"],
+    queryFn: api.market,
+    refetchInterval: FEED_POLL_MS,
+  });
+}
+export function usePrices() {
+  return useQuery({
+    queryKey: ["prices"],
+    queryFn: api.prices,
+    refetchInterval: 15000,
+  });
+}
+export function useBadgeStats() {
+  return useQuery({
+    queryKey: ["badge-stats"],
+    queryFn: api.badgeStats,
+    refetchInterval: 15000,
+  });
+}
+export function useAppConfig() {
+  return useQuery({
+    queryKey: ["app-config"],
+    queryFn: api.config,
+    staleTime: Infinity,
+  });
+}
+
 export function useLenderStatus() {
   const { party } = useParty();
   return useQuery({

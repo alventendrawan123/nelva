@@ -2,14 +2,21 @@
 
 import Image from "next/image";
 import { Card } from "@/components/ui/Card";
-import { useStatus } from "@/lib/api/hooks";
+import { useMarket } from "@/lib/api/hooks";
 
 export function ExploreHero() {
-  const status = useStatus();
+  const market = useMarket();
+  const instruments = market.data?.instruments ?? [];
   const stats = [
-    { label: "Open Lend Intents", value: status.data?.openBids ?? 0 },
-    { label: "Active Proposals", value: status.data?.proposals ?? 0 },
-    { label: "Active Loans", value: status.data?.activeLoans ?? 0 },
+    { label: "Markets Available", value: instruments.length },
+    {
+      label: "Active Lend Intents",
+      value: instruments.reduce((s, m) => s + m.openBids, 0),
+    },
+    {
+      label: "Active Borrow Intents",
+      value: instruments.reduce((s, m) => s + m.openBorrows, 0),
+    },
   ];
 
   return (
@@ -19,9 +26,9 @@ export function ExploreHero() {
           Explore Nelva markets
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted">
-          Live market totals from the Canton ledger. Individual rates stay
-          sealed and are settled inside Nelva&apos;s deterministic, auditable
-          matching engine.
+          Browse private lending and borrowing markets. Rates stay sealed and
+          settle inside Nelva&apos;s deterministic, auditable matching engine —
+          the totals below are read live from the Canton ledger.
         </p>
         <dl className="mt-8 flex flex-wrap gap-x-10 gap-y-4">
           {stats.map((stat) => (

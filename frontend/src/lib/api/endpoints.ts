@@ -24,6 +24,12 @@ import {
   meSchema,
   type AddressTxs,
   addressTxsSchema,
+  type BadgeStats,
+  badgeStatsSchema,
+  type Market,
+  marketSchema,
+  type PriceRow,
+  priceRowSchema,
   type Status,
   statusSchema,
   type TxDetails,
@@ -108,6 +114,14 @@ export const api = {
     call<AddressTxs>(`/address-txs?party=${encodeURIComponent(party)}`, {
       schema: addressTxsSchema,
     }),
+
+  // Explore: public market aggregates / oracle prices / audit-verdict counts
+  market: () => call<Market>("/market", { schema: marketSchema }),
+  prices: () => call<PriceRow[]>("/prices", { schema: priceRowSchema.array() }),
+  badgeStats: () =>
+    call<BadgeStats>("/badge-stats", { schema: badgeStatsSchema }),
+  config: () =>
+    call<{ packageId: string }>("/config", {}),
 
   runMatch: () =>
     call<{ proposals: MatchProposal[] }>("/admin/run-match", {
