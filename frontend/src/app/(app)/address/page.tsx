@@ -59,10 +59,10 @@ function AddressView() {
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
       <Link
-        href="/"
+        href="/profile"
         className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-foreground"
       >
-        <ArrowLeft className="h-4 w-4" /> Back to Nelva
+        <ArrowLeft className="h-4 w-4" /> Back to Profile
       </Link>
 
       <h1 className="text-2xl font-bold text-foreground">Address</h1>

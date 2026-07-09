@@ -108,7 +108,7 @@ export default function TxPage({
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
       <Link
-        href="/"
+        href="/app"
         className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" /> Back to Nelva
