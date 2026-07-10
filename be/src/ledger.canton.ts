@@ -1118,7 +1118,7 @@ export class CantonLedger implements Ledger {
     const activeLoans = positions.map((x) => {
       const amount = Number(x.arg.amount), rate = Number(x.arg.rate);
       const owedToMe = amount + amount * rate;
-      return { loanId: x.arg.loanKey, borrower: nameOf(x.arg.borrower), maturity: x.arg.maturity, myPrincipal: amount, myRate: rate, owedToMe };
+      return { loanId: x.arg.loanKey, txOffset: x.offset, borrower: nameOf(x.arg.borrower), maturity: x.arg.maturity, myPrincipal: amount, myRate: rate, owedToMe };
     });
     const completedLoans: any[] = [];
     const pendingPayouts = activeLoans.map((l) => ({ loanId: l.loanId, borrower: l.borrower, amount: l.owedToMe, maturity: l.maturity }));

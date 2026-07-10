@@ -36,14 +36,21 @@ export function TxRow({
   const { showError } = useFeedback();
   const [busy, setBusy] = useState(false);
 
-  // resolve this row's creating tx and open it in the Nelva Explorer (live ledger view)
+  // resolve this row's creating tx and open it in the Nelva Explorer (live ledger view).
+  // The tab must be opened SYNCHRONOUSLY inside the click (a window.open after an await is
+  // no longer a user gesture, so popup blockers silently eat it), then pointed at the tx
+  // once the ledger lookup resolves.
   const openExplorer = async () => {
     if (!txOffset || busy) return;
     setBusy(true);
+    const tab = window.open("", "_blank");
     try {
       const { updateId } = await api.txByOffset(txOffset);
-      window.open(`/tx/${updateId}`, "_blank", "noopener");
+      const url = `/tx/${updateId}`;
+      if (tab) tab.location.href = url;
+      else window.location.href = url; // popup denied entirely -> same-tab fallback
     } catch (e) {
+      tab?.close();
       showError(
         e instanceof Error ? e.message : "Could not fetch the tx hash.",
       );

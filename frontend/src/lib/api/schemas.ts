@@ -124,6 +124,7 @@ export const lensViewSchema = z.object({
 
 export const lenderPositionSchema = z.object({
   loanId: z.string(),
+  txOffset: z.number().optional(),
   borrower: z.string(),
   maturity: z.string(),
   myPrincipal: z.number(),

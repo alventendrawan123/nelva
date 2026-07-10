@@ -59,6 +59,7 @@ export function StatusPanel() {
                   title={`Lending ${formatAmount(pos.myPrincipal)} at ${formatRate(pos.myRate)}`}
                   subtitle={`Owed to you ${formatAmount(pos.owedToMe)} - ${pos.borrower}`}
                   idLabel={pos.loanId}
+                  txOffset={pos.txOffset}
                   status="ACTIVE"
                   statusTone="accent"
                 />
