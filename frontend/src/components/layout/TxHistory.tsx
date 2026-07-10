@@ -70,7 +70,7 @@ export function TxHistory() {
         className="inline-flex items-center gap-1.5 rounded-full bg-surface px-3 py-1.5 text-sm font-semibold text-foreground transition-colors hover:bg-surface-2"
       >
         <ArrowUpRight className="h-4 w-4 text-muted" />
-        Tx
+        Transaction history
         {count > 0 ? (
           <span className="rounded-full bg-surface-2 px-1.5 text-[11px] font-semibold text-muted">
             {count}
