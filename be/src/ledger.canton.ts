@@ -721,12 +721,18 @@ export class CantonLedger implements Ledger {
 
   async status() {
     const op = await this.ensureParty("Operator");
-    const [bids, loans, props] = await Promise.all([
+    const [bids, loans, props, borrows] = await Promise.all([
       this.acsAs(op, "Lending:SealedBid"),
       this.acsAs(op, "Settlement:Loan"),
       this.acsAs(op, "Settlement:MatchProposal"),
+      this.acsAs(op, "Lending:BorrowIntent"),
     ]);
-    return { openBids: bids.length, activeLoans: loans.length, proposals: props.length, lastMatchAt: props.length ? new Date().toISOString() : null };
+    // Count only LIVE proposals (same rule as listProposals): a proposal whose borrow was
+    // archived is an unactionable leftover — nobody can Accept/Reject it and no UI shows it,
+    // so surfacing it in the public counter just makes the Status tab contradict every view.
+    const liveBorrows = new Set(borrows.map((b) => b.cid));
+    const liveProps = props.filter((p) => liveBorrows.has(p.arg.borrowCid));
+    return { openBids: bids.length, activeLoans: loans.length, proposals: liveProps.length, lastMatchAt: liveProps.length ? new Date().toISOString() : null };
   }
 
   // real wallet: the party's own Holding contracts on Canton
