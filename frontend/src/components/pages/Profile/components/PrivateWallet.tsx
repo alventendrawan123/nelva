@@ -23,7 +23,7 @@ export function PrivateWallet() {
         errorMessage="Could not load holdings."
         emptyMessage="No holdings on the ledger yet."
       >
-        <ul className="w-full space-y-2">
+        <ul className="nelva-scroll max-h-80 w-full space-y-2 overflow-y-auto pr-1">
           {rows.map((holding, index) => (
             <li
               key={`${holding.instrument}-${holding.locked}-${index}`}

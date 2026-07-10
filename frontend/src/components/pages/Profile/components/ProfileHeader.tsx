@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Copy, ExternalLink } from "lucide-react";
+import Image from "next/image";
 import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { useCreditScore, useProfile } from "@/lib/api/hooks";
@@ -30,8 +31,14 @@ export function ProfileHeader() {
   return (
     <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
       <div className="flex items-start gap-4">
-        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-lg font-bold text-primary-foreground">
-          {tier.charAt(0)}
+        <span className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-surface-2">
+          <Image
+            src="/assets/images/logo/nelva-logo.png"
+            alt="Nelva"
+            width={56}
+            height={56}
+            className="h-14 w-14 object-contain"
+          />
         </span>
         <div>
           <div className="flex flex-wrap items-center gap-2">
