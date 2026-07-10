@@ -96,7 +96,11 @@ async function activeProposals() {
     acs("Lending:SealedBid"),
   ]);
   const live = new Set([...borrows, ...bids].map((c) => c.contractId)); // to check each proposal's refs are still live
-  const props = props0.filter((c) => String(c.templateId).endsWith(":Nelva.Settlement:MatchProposal") && PKG_IDS.has(String(c.templateId).split(":")[0])); // upgrade pair only
+  // Verify proposals from the CURRENT package only. Pre-upgrade proposals can linger as
+  // unarchivable zombies (their demo collateral cid was consumed, so Accept/Reject both fail
+  // fetch) and would pollute every audit run with stale verdicts. The bids/borrows liveness
+  // set (above) still spans the upgrade pair, since a current proposal may reference them.
+  const props = props0.filter((c) => String(c.templateId).startsWith(`${PKG}:`));
   return props.map((p) => {
     const a = p.createArgument;
     const refsLive = live.has(a.borrowCid) && (a.inputBidCids ?? []).every((c) => live.has(c));
