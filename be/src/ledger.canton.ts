@@ -727,11 +727,13 @@ export class CantonLedger implements Ledger {
       this.acsAs(op, "Settlement:MatchProposal"),
       this.acsAs(op, "Lending:BorrowIntent"),
     ]);
-    // Count only LIVE proposals (same rule as listProposals): a proposal whose borrow was
-    // archived is an unactionable leftover — nobody can Accept/Reject it and no UI shows it,
-    // so surfacing it in the public counter just makes the Status tab contradict every view.
+    // Count only LIVE proposals (the FULL listProposals rule: borrow AND every input bid still
+    // active). A proposal with any archived reference is an unactionable leftover — nobody can
+    // Accept/Reject it and no UI shows it — so surfacing it in the public counter just makes
+    // the Status tab contradict every view.
     const liveBorrows = new Set(borrows.map((b) => b.cid));
-    const liveProps = props.filter((p) => liveBorrows.has(p.arg.borrowCid));
+    const liveBids = new Set(bids.map((b) => b.cid));
+    const liveProps = props.filter((p) => liveBorrows.has(p.arg.borrowCid) && (p.arg.inputBidCids ?? []).every((c: string) => liveBids.has(c)));
     return { openBids: bids.length, activeLoans: loans.length, proposals: liveProps.length, lastMatchAt: liveProps.length ? new Date().toISOString() : null };
   }
 
