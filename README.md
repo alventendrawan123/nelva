@@ -43,7 +43,7 @@ Nelva composes four primitives, all enforced at the Daml contract layer:
 
 **3. Prevent-by-construction settlement.** When the borrower exercises `Accept`, the choice **re-fetches the committed bids and re-runs the deterministic match**, then asserts the published ticks and blended rate equal the honest recompute. A fabricated proposal doesn't get "caught later" — it **fails to settle at all** (`DAML_FAILURE`). Funds and collateral then move atomically in that same transaction; the operator never custodies anything.
 
-**4. Independent auditor — GREEN / RED, from a terminal the operator doesn't run.** `auditor/audit.mjs` is a standalone CLI that connects straight to the Canton ledger as the Auditor party (no Nelva backend involved), creates a `VerifyRequest`, and exercises `Verify` — which re-executes the same match over *every* committed bid, winners and losers, and creates an auditor-signed `AuditBadge` on-ledger: **GREEN** (published == recompute) or **RED** (operator fabricated). The demo includes a "Cheat Match" button that makes the operator publish a priciest-first match — the auditor flips RED and `Accept` refuses it.
+**4. Independent auditor — GREEN / RED, from a terminal the operator doesn't run.** `auditor/audit.mjs` is a standalone CLI that connects straight to the Canton ledger as the Auditor party (no Nelva backend involved), creates a `VerifyRequest`, and exercises `Verify` — which re-executes the same match over *every* committed bid, winners and losers, and creates an auditor-signed `AuditBadge` on-ledger: **GREEN** (published == recompute) or **RED** (operator fabricated). The demo ships a terminal counterpart (`demo/demo.mjs cheat`) that makes the operator publish a priciest-first match — the auditor flips RED and `Accept` refuses it.
 
 Plus a **credit-tier ladder** that turns repayment history into cheaper collateral (below), a **built-in explorer** for every on-ledger transaction, and a real **non-custodial wallet** flow (your key never leaves the browser).
 
@@ -66,9 +66,10 @@ On explorers: Canton delivers transactions **only to their stakeholders**. Publi
 
 - **Sealed-bid lending** — post amount + rate; the rate is visible to the matching engine and auditor only.
 - **Private borrowing** — post amount + max rate + collateral; your max rate never reaches rival borrowers.
-- **One-click deterministic match** (operator) — cheapest-first, blended rate, discriminatory pricing.
-- **Cheat Match demo button** (operator) — publishes a deliberately dishonest match so judges can watch the auditor flip RED and `Accept` reject it.
+- **Deterministic matching** — cheapest-first, blended rate, discriminatory pricing; runs automatically (the operator's auto-matcher) or on demand via `node demo/demo.mjs match`.
+- **Cheat Match demo** — `node demo/demo.mjs cheat` publishes a deliberately dishonest match so judges can watch the auditor flip RED and `Accept` reject it.
 - **Terminal auditor** — `node auditor/audit.mjs` re-verifies every pending proposal on-ledger and prints GREEN/RED, with an auditor-signed `AuditBadge` as the receipt.
+- **Terminal lens** — `node demo/demo.mjs lens` prints the same proposal through five per-party ledger reads (lender / borrower / operator / auditor / outsider): who sees what, live.
 - **Credit tiers (Bronze → Platinum)** — every repaid loan ranks the borrower up; higher tiers lock less collateral. Defaults rank down.
 - **Claim Excess** — withdraw collateral above your tier's requirement mid-loan, health-checked against a fresh oracle price.
 - **Repay / Cancel / Withdraw** — full lifecycle, all wallet-signed: repay principal + interest (collateral returns, tier bumps), cancel an unmatched borrow, withdraw an expired bid.
@@ -115,7 +116,7 @@ Privacy in Nelva is structural — it lives in each template's `signatory`/`obse
 | `Settlement:AuditBadge` | auditor | operator, borrower | lenders — the badge lists the full lender set, which would disclose co-funders to each other |
 | `Settlement:PriceUpdate` | oracle | operator | — (disclosed to a borrower per-transaction when a health check needs it) |
 
-The frontend's **Lens** view walks these projections party-by-party (lender / borrower / operator / auditor / outsider) — each pane is a real per-party read from the ledger, not a filtered mock.
+`node demo/demo.mjs lens` walks these projections party-by-party (lender / borrower / operator / auditor / outsider) — each line is a real per-party read from the ledger, not a filtered mock.
 
 ## Architecture
 
@@ -224,7 +225,17 @@ pnpm dev           # → http://localhost:3000
 
 The browser never sees the backend URL or any ledger credential — all API traffic rides a same-origin `/api` rewrite.
 
-### 4 · Auditor (the independent terminal)
+### 4 · Demo driver (operator terminal)
+
+```bash
+# NELVA_BE overrides the target backend (default: the deployed gateway)
+node demo/demo.mjs match     # operator publishes an honest deterministic match
+node demo/demo.mjs cheat     # operator publishes a dishonest match (the demo villain)
+node demo/demo.mjs lens      # one ledger, five per-party perspectives
+node demo/demo.mjs status    # the public outsider view
+```
+
+### 5 · Auditor (the independent terminal)
 
 ```bash
 # uses the same env vars as the BE (JSON_LEDGER_API, AUTH_*, NELVA_PACKAGE_ID, NELVA_PARTY_PREFIX)
@@ -255,9 +266,9 @@ Faucet → Borrow (amount, max rate, collateral) → Accept proposal → Repay �
 
 ### Operator flow (and the cheat)
 ```
-Run Match → proposal(s) published        Cheat Match → auditor RED → Accept refuses
+node demo/demo.mjs match → honest proposal      node demo/demo.mjs cheat → auditor RED → Accept refuses
 ```
-`RunMatch` commits the full input set (every bid, including losers) so the audit runs over *committed* data, not the operator's claims. "Cheat Match" publishes a priciest-first fill — it looks plausible, pays some lenders more, and skims the borrower. Two independent defenses fire: the auditor's `Verify` flips **RED**, and the borrower's `Accept` recomputation rejects settlement outright.
+Matching normally runs automatically (the BE's auto-matcher, acting as the operator). The demo script drives it by hand: `RunMatch` commits the full input set (every bid, including losers) so the audit runs over *committed* data, not the operator's claims. `cheat` publishes a priciest-first fill — it looks plausible, pays some lenders more, and skims the borrower. Two independent defenses fire: the auditor's `Verify` flips **RED**, and the borrower's `Accept` recomputation rejects settlement outright.
 
 ### Auditor flow
 ```

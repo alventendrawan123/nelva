@@ -1,5 +1,5 @@
 const STATS = [
-  { value: "5", label: "party perspectives in the Lens" },
+  { value: "5", label: "party perspectives, one ledger" },
   { value: "4", label: "credit tiers, Bronze to Platinum" },
   { value: "1.2x", label: "min collateral once you reach Platinum" },
 ];

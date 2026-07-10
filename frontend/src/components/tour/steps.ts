@@ -14,14 +14,16 @@ export type TourStep = {
   onEnter?: (actions: TourActions) => void;
 };
 
-// Narrated demo walkthrough of one private loan on Canton. The same connected
-// wallet is your identity throughout; the Lens demo controls (run/cheat/verify)
-// are public so the whole story plays from a single session.
+// Narrated walkthrough of one private loan on Canton. The same connected wallet
+// is your identity throughout. Matching runs automatically (the operator's
+// auto-matcher); the demo controls (honest vs cheat match, five-party lens) and
+// the independent auditor live in terminal scripts — demo/demo.mjs and
+// auditor/audit.mjs — so the product UI stays clean.
 export const TOUR_STEPS: TourStep[] = [
   {
     id: "welcome",
     title: "Welcome to Nelva",
-    body: "A private sealed-bid lending market on Canton. This tour walks the full flow: get funds, lend or borrow, match, settle, and prove the match was honest.",
+    body: "A private sealed-bid lending market on Canton. This tour walks the full flow: get funds, lend or borrow, match, settle — with every action a real on-ledger transaction.",
   },
   {
     id: "connect",
@@ -50,67 +52,37 @@ export const TOUR_STEPS: TourStep[] = [
     id: "borrow",
     target: "borrow-form",
     title: "4. Or borrow with collateral",
-    body: "On the Borrow tab you request funds and lock collateral. Required collateral is quoted live, and your max rate stays sealed. Press Next.",
+    body: "On the Borrow tab you request funds and lock collateral. Required collateral is quoted live from your credit tier, and your max rate stays sealed. Press Next.",
     placement: "bottom",
     onEnter: (a) => a.setActiveHomeTab("Borrow"),
   },
   {
-    id: "run-match",
-    target: "run-match",
-    title: "5. Run the match",
-    body: "On the Lens tab, click Run Match. The operator pairs lenders to a borrower cheapest-first and publishes a proposal.",
-    placement: "bottom",
-    clickToAdvance: true,
-    onEnter: (a) => a.setActiveHomeTab("Lens"),
-  },
-  {
-    id: "accept",
+    id: "match",
     target: "accept-btn",
-    title: "6. Settle to the borrower",
-    body: "On the Borrow tab, Accept moves funds from the lenders to the borrower in one atomic transaction - no operator ever holds the money. (Only your own proposals show an Accept button.) Press Next.",
+    title: "5. The match finds you",
+    body: "The operator's engine runs a deterministic, cheapest-first match automatically - a proposal appears here with your blended rate. Accept settles it in ONE atomic transaction: lender funds arrive, collateral escrows, no operator ever holds the money. Press Next.",
     placement: "top",
     onEnter: (a) => a.setActiveHomeTab("Borrow"),
   },
   {
-    id: "lens-columns",
-    target: "lens-columns",
-    title: "7. One ledger, five views",
-    body: "Each column shows only what that party may see: the operator sees ALL rates, a lender sees only its own, the outsider sees nothing. Canton privacy, live. Press Next.",
-    placement: "top",
-    onEnter: (a) => a.setActiveHomeTab("Lens"),
-  },
-  {
-    id: "verify-green",
-    target: "auditor-note",
-    title: "8. Prove it was honest",
-    body: "The auditor isn't a button here - it's a separate process. Run `node auditor/audit.mjs` in a terminal: it connects straight to the ledger and re-runs the match over every bid, including the losers. An honest match returns a GREEN badge that lands in the Audit Verdict tile above. Press Next.",
-    placement: "top",
-    onEnter: (a) => a.setActiveHomeTab("Lens"),
-  },
-  {
-    id: "cheat",
-    target: "cheat-match",
-    title: "9. Try to cheat",
-    body: "Click Cheat Match. The operator secretly skips a cheaper lender and publishes a dishonest proposal.",
+    id: "tx-proof",
+    target: "tx-history",
+    title: "6. Every action is a real transaction",
+    body: "Each signed action returns its Canton tx hash - collected here, one click to open it in the built-in explorer, read live from the ledger. Press Next.",
     placement: "bottom",
-    clickToAdvance: true,
-    onEnter: (a) => a.setActiveHomeTab("Lens"),
-  },
-  {
-    id: "verify-red",
-    target: "auditor-note",
-    title: "10. The cheat is caught",
-    body: "Run the auditor in the terminal again - it flips RED with the reason. Private, on-ledger, and independent of the operator's app: a cheater still gets caught. This is the differentiator. Press Next.",
-    placement: "top",
-    onEnter: (a) => a.setActiveHomeTab("Lens"),
   },
   {
     id: "outsider",
     target: "status-stats",
-    title: "11. Outsiders see only totals",
+    title: "7. Outsiders see only totals",
     body: "The Status view shows public aggregates - no bids, no rates, no identities. Privacy holds for everyone outside the deal. Press Next.",
     placement: "bottom",
     onEnter: (a) => a.setActiveHomeTab("Status"),
+  },
+  {
+    id: "prove-it",
+    title: "8. Prove the match was honest",
+    body: "Honesty isn't a promise - it's re-runnable. In a terminal: `node demo/demo.mjs cheat` makes the operator publish a dishonest match, and `node auditor/audit.mjs` (an independent process) re-runs the match on-ledger and flips it RED - while an honest one verifies GREEN. A cheat can't even settle: Accept re-validates the match on-ledger.",
   },
   {
     id: "finish",
