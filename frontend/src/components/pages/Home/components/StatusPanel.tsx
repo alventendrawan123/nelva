@@ -3,13 +3,20 @@
 import { QueryState } from "@/components/shared/QueryState";
 import { TxRow } from "@/components/shared/TxRow";
 import { StatTile } from "@/components/ui/StatTile";
-import { useLoans, useStatus } from "@/lib/api/hooks";
+import { useLenderStatus, useLoans, useStatus } from "@/lib/api/hooks";
 import { formatAmount, formatRate } from "@/lib/format";
 import { PanelHeading } from "./PanelHeading";
 
 export function StatusPanel() {
   const status = useStatus();
   const loans = useLoans();
+  // A lender is deliberately NOT an observer of the Loan contract (co-funders must
+  // not see each other's ticks), so their side of a loan is their own LoanPosition.
+  const lender = useLenderStatus();
+
+  const lendPositions = lender.data?.activeLoans ?? [];
+  const borrowLoans = loans.data ?? [];
+  const isEmpty = borrowLoans.length === 0 && lendPositions.length === 0;
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -38,20 +45,33 @@ export function StatusPanel() {
           Active positions
         </h2>
         <QueryState
-          isLoading={loans.isLoading}
-          isError={loans.isError}
-          isEmpty={!loans.data || loans.data.length === 0}
+          isLoading={loans.isLoading || lender.isLoading}
+          isError={loans.isError && lender.isError}
+          isEmpty={isEmpty}
           errorMessage="Could not load your positions."
           emptyMessage="No active intents or loans found."
         >
           <ul className="space-y-3">
-            {loans.data?.map((loan) => (
+            {lendPositions.map((pos) => (
+              <li key={`lend-${pos.loanId}`}>
+                <TxRow
+                  symbol="nUSD"
+                  title={`Lending ${formatAmount(pos.myPrincipal)} at ${formatRate(pos.myRate)}`}
+                  subtitle={`Owed to you ${formatAmount(pos.owedToMe)} - ${pos.borrower}`}
+                  idLabel={pos.loanId}
+                  status="ACTIVE"
+                  statusTone="accent"
+                />
+              </li>
+            ))}
+            {borrowLoans.map((loan) => (
               <li key={loan.loanId}>
                 <TxRow
                   symbol="nUSD"
-                  title={`${formatAmount(loan.principal)} at ${formatRate(loan.blendedRate)}`}
+                  title={`Borrowing ${formatAmount(loan.principal)} at ${formatRate(loan.blendedRate)}`}
                   subtitle={`Loan - ${loan.borrower}`}
                   idLabel={loan.loanId}
+                  txOffset={loan.txOffset}
                   status={loan.status}
                   statusTone={loan.status === "ACTIVE" ? "accent" : "success"}
                 />
