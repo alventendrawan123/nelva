@@ -24,7 +24,7 @@ export function ConnectWallet() {
 
   if (!partyId) {
     // when a hosted Canton gateway is configured, offer the real CIP-0103 wallet
-    // plus the instant in-browser demo wallet; otherwise just the demo wallet.
+    // plus the instant in-browser quick wallet; otherwise just the quick wallet.
     if (cantonEnabled) {
       return (
         <div className="flex items-center gap-2">
@@ -43,7 +43,7 @@ export function ConnectWallet() {
             onClick={() => connect()}
             disabled={connecting}
             className="rounded-full border border-border px-3 py-2 text-sm font-semibold text-muted hover:text-foreground disabled:opacity-60"
-            title="Instant in-browser demo wallet — no setup"
+            title="Instant in-browser wallet — no setup, signs locally"
           >
             Quick wallet
           </button>

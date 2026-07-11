@@ -4,9 +4,9 @@ import { Eye, Lock } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { useStatus } from "@/lib/api/hooks";
 
-// The OUTSIDER perspective, made explicit on the public page: everything here is
-// aggregate, read live from the Canton ledger. It's the same "outsider" slice the
-// five-perspective lens shows — surfaced where an outsider actually lands.
+// The public market panel: everything here is aggregate, read live from the Canton
+// ledger. Makes the privacy guarantee explicit where a non-participant lands —
+// totals are public, individual rates/positions/counterparties never are.
 export function OutsiderView() {
   const status = useStatus();
 
@@ -30,10 +30,10 @@ export function OutsiderView() {
         <div className="bg-surface p-6 sm:p-8">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted">
             <Eye className="h-3.5 w-3.5" />
-            Outsider view
+            Public market
           </span>
           <h2 className="mt-4 text-2xl font-bold text-foreground">
-            What everyone outside the deal sees
+            Public totals, private terms
           </h2>
           <p className="mt-3 text-sm leading-6 text-muted">
             Everything on this page is aggregate. Individual rates, positions,
@@ -44,7 +44,7 @@ export function OutsiderView() {
           </p>
 
           <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-muted">
-            Hidden from you
+            Never public
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             {hidden.map((h) => (
