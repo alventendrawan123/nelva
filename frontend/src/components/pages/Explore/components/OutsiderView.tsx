@@ -36,10 +36,11 @@ export function OutsiderView() {
             What everyone outside the deal sees
           </h2>
           <p className="mt-3 text-sm leading-6 text-muted">
-            This is the outsider&apos;s projection, read live from the Canton
-            ledger — aggregates only. Every rate stays sealed to its party, and
-            no rival ever learns who matched whom. Privacy holds for everyone
-            outside the deal.
+            Everything on this page is aggregate. Individual rates, positions,
+            and counterparties stay sealed to the parties in each deal — a
+            competitor, an observer, or the wider market never sees them. This
+            privacy is enforced by the Canton ledger itself, not by trust in an
+            operator.
           </p>
 
           <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-muted">
