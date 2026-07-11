@@ -856,6 +856,13 @@ export class CantonLedger implements Ledger {
     const prop = blobs.get(proposalCid);
     if (!prop) throw new Error("proposal not found");
     const cids = new Set<string>();
+    // Accept is prevent-by-construction: it re-runs the deterministic match, which `fetch`es the
+    // FULL input bid set — winners AND losers — to recompute the honest result. The borrower is
+    // not an observer of any SealedBid, so EVERY inputBidCid must be disclosed, or that fetch of a
+    // loser bid fails CONTRACT_NOT_FOUND and the honest match can't settle. (Only matched bids were
+    // disclosed before, which worked only for single-bid rounds.)
+    for (const cid of prop.arg.inputBidCids ?? []) cids.add(cid);
+    // plus each MATCHED bid's locked Holding, which DrawForMatch draws during settlement.
     for (const t of prop.arg.matchedTicks ?? []) {
       cids.add(t.bidCid);
       const bid = blobs.get(t.bidCid);
