@@ -1,8 +1,22 @@
+<div align="center">
+
+<img src="./frontend/public/assets/images/logo/nelva-logo.png" width="90" alt="Nelva Logo">
+
 # Nelva
 
-**Private sealed-bid P2P lending on Canton — rates stay sealed, and the match is provably honest.**
+**Private sealed-bid P2P lending on Canton —**
+**rates stay sealed, and the match is provably honest.**
+
+[![Canton DevNet](https://img.shields.io/badge/Canton-DevNet-5A32C9)](https://www.canton.network)
+[![Daml](https://img.shields.io/badge/Daml-3.4-DA2A34)](https://docs.daml.com)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000)](https://nextjs.org)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](./LICENSE)
 
 [Live app](https://nelva-ashy.vercel.app) · Demo video *(coming with submission)* · [GitHub](https://github.com/alventendrawan123/nelva)
+
+</div>
+
+---
 
 Nelva is a sealed-bid peer-to-peer lending market deployed on **Canton DevNet**. Lenders bid capital at private rates; borrowers post collateral and borrow at a blended rate; a deterministic matching engine pairs them **on-ledger**. The rates never leak to rivals — Canton's sub-transaction privacy scopes every contract to its stakeholders — and yet nobody has to trust the operator: an **independent auditor re-runs the exact same match on-ledger** and stamps a GREEN/RED verdict, while the settlement step itself **re-validates the match and refuses to settle a dishonest one**.
 
