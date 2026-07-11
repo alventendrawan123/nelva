@@ -48,6 +48,14 @@ function classifyError(e: any): { status: number; body: any } {
     if (code === "CONTRACT_NOT_FOUND" || /(-> 404\b|NOT_FOUND)/.test(msg)) return { status: 409, body: { error: "ledger state changed (contract not found); retry", code } };
     if (code === "DAML_AUTHORIZATION_ERROR" || /-> 403\b/.test(msg)) return { status: 403, body: { error: "not authorized for this operation", code } };
     if (/-> 5\d\d\b|fetch failed|ECONNREFUSED|ENOTFOUND/.test(msg)) return { status: 502, body: { error: "ledger unavailable", code } };
+    // Author-written Daml assert messages carry no internal ids, so they're safe to surface — and
+    // they make a rejection legible instead of an opaque "rejected". The diverges case is the whole
+    // point of prevent-by-construction: the borrower sees the fabricated match was refused BY THE
+    // RE-VALIDATION, not by luck.
+    if (/diverg/i.test(msg)) return { status: 400, body: { error: "match rejected — this proposal diverges from the honest deterministic recompute", code: "MATCH_DIVERGED" } };
+    if (/under-collateral/i.test(msg)) return { status: 400, body: { error: "rejected — this withdrawal would leave the loan under-collateralized at the current price", code } };
+    if (/stale price/i.test(msg)) return { status: 400, body: { error: "rejected — the oracle price is stale", code } };
+    if (/no excess collateral/i.test(msg)) return { status: 400, body: { error: "no excess collateral to claim", code } };
     return { status: 400, body: { error: "ledger rejected the request", code } };
   }
   return { status: 400, body: { error: msg } };
