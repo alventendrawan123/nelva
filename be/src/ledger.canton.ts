@@ -476,7 +476,10 @@ export class CantonLedger implements Ledger {
       // archived (e.g. a legacy Reject before the SC fix): RunMatch fetches bi.collateralCid,
       // so one dangling ref aborts the WHOLE round. Only match borrows whose collateral is live.
       const liveHoldings = new Set<string>((await this.acsAs(op, "Asset:Holding")).map((hd) => hd.cid));
-      let freeBids = bids.filter((b) => !usedBids.has(b.cid));
+      // Also skip bids whose locked Holding was already drawn (a stale SealedBid left behind after
+      // its escrow was consumed elsewhere): Accept's DrawForMatch fetches the bid's holdingCid, so
+      // matching one aborts settlement with CONTRACT_NOT_FOUND instead of a clean verdict.
+      let freeBids = bids.filter((b) => !usedBids.has(b.cid) && liveHoldings.has(b.arg.holdingCid));
       let freeBorrows = borrows.filter((b) => !usedBorrows.has(b.cid) && liveHoldings.has(b.arg.collateralCid));
       // Demo self-heal: the shared DevNet book can reach a state where every open bid is
       // already reserved by a PENDING proposal (bids only release at Accept/Reject), which
@@ -522,8 +525,13 @@ export class CantonLedger implements Ledger {
     const aud = await this.ensureParty("Auditor");
     const cust = await this.ensureParty("Custodian");
     const oracle = await this.ensureParty("Oracle");
-    const bids = await this.acsAs(op, "Lending:SealedBid");
     const borrows = await this.acsAs(op, "Lending:BorrowIntent");
+    // Only match bids whose locked Holding is still live. A stale SealedBid (escrow already drawn)
+    // would make the cheat proposal reference a dead holding, so Accept fails with a muddy
+    // CONTRACT_NOT_FOUND instead of the intended "proposal diverges from the honest recompute" —
+    // the whole point of the demo is that the RE-VALIDATION rejects it, not a dangling reference.
+    const liveHoldings = new Set<string>((await this.acsAs(op, "Asset:Holding")).map((hd) => hd.cid));
+    const bids = (await this.acsAs(op, "Lending:SealedBid")).filter((b) => liveHoldings.has(b.arg.holdingCid));
     if (!bids.length || !borrows.length) return [];
     // Prefer a wallet borrower (party id without the nelva- persona prefix) so the demo's Cheat
     // Match targets the connected wallet's borrow — its owner then sees the fabricated proposal in
