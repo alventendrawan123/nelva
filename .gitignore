@@ -30,5 +30,8 @@ Thumbs.db
 sc/log/
 *.tmp
 
-# ── Internal docs (kept out of the public repo) ──────────
+# ── Internal docs / planning (kept out of the public repo) ──
 docs/
+plan.md
+infoLandingPage.md
+frontend/agent/
