@@ -10,7 +10,23 @@
 //     - no arg  -> verify every currently-verifiable pending proposal
 //     - arg     -> verify just that proposal
 //
-// Config comes from the same env the backend uses (JSON_LEDGER_API, AUTH_*, NELVA_*).
+// Config comes from the same env the backend uses (JSON_LEDGER_API, AUTH_*, NELVA_*). If those
+// aren't already exported, auto-load a KEY=VALUE env file so the demo command stays clean
+// (`node auditor/audit.mjs`) — checked in order: $NELVA_ENV, ./nelva.env, ~/nelva-5n-devnet.env.
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+if (!process.env.AUTH_CLIENT_SECRET) {
+  const candidates = [process.env.NELVA_ENV, "nelva.env", `${homedir()}/nelva-5n-devnet.env`].filter(Boolean);
+  for (const path of candidates) {
+    try {
+      for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
+        const m = /^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
+        if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+      }
+      break;
+    } catch { /* try next candidate */ }
+  }
+}
 
 const C = { g: "\x1b[32m", r: "\x1b[31m", y: "\x1b[33m", d: "\x1b[2m", b: "\x1b[1m", x: "\x1b[0m", c: "\x1b[36m" };
 
