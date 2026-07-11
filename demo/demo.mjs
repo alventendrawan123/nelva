@@ -50,6 +50,12 @@ const CMDS = {
   async cheat() {
     console.log(`${C.b}${C.r}OPERATOR · CHEAT MATCH${C.x} ${C.d}(fills priciest-first, skips cheap lenders — skims the borrower)${C.x}\n`);
     const r = await api("/admin/cheat-match", { method: "POST", party: "Operator" });
+    if (!r.proposals?.length) {
+      console.log(`  ${C.y}nothing to cheat on — no OPEN borrow intent right now.${C.x}`);
+      console.log(`  ${C.d}the cheat match needs a live, not-yet-accepted borrow. In the app: submit a Borrow,`);
+      console.log(`  wait for its honest proposal to appear, THEN run cheat (don't Accept the honest one first).${C.x}`);
+      return;
+    }
     printProposals(r.proposals, C.r);
     console.log(`\n  two independent defenses now fire:`);
     console.log(`   1. ${C.b}auditor${C.x}   node auditor/audit.mjs        ${C.d}→${C.x} ${C.r}${C.b}RED${C.x} ${C.d}(on-ledger AuditBadge)${C.x}`);
