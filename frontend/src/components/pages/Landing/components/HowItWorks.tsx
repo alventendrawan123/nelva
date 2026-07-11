@@ -40,8 +40,8 @@ const STEPS: Step[] = [
     n: "03",
     icon: FiSliders,
     title: "Match",
-    chip: "Cheapest first",
-    body: "The operator runs the deterministic match and publishes a blended-rate proposal.",
+    chip: "Auto, every 20s",
+    body: "The operator's engine runs the deterministic match automatically and publishes a blended-rate proposal.",
   },
   {
     n: "04",
